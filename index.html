@@ -308,6 +308,17 @@ textarea{resize:vertical;min-height:52px}
   </aside>
 
   <div class="main">
+    <!-- Barra offline -->
+    <div id="offline-bar" style="display:none;background:#92400e;color:#fffbeb;font-size:12px;padding:7px 20px;align-items:center;gap:8px;border-bottom:1px solid #f59e0b">
+      <i class="ti ti-wifi-off" style="font-size:15px" aria-hidden="true"></i>
+      <span><b>Modo offline</b> — Trabalhando com dados locais. As alterações serão sincronizadas quando a internet voltar.</span>
+      <span id="sync-pending" style="margin-left:auto;background:#f59e0b;color:#1c1917;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;display:none">0 pendentes</span>
+      <button onclick="tentarSincronizar()" style="margin-left:8px;padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid #f59e0b;background:transparent;color:#fffbeb;cursor:pointer">↑ Sincronizar agora</button>
+    </div>
+    <div id="sync-bar" style="display:none;background:#166534;color:#f0fdf4;font-size:12px;padding:7px 20px;align-items:center;gap:8px">
+      <i class="ti ti-refresh" style="font-size:15px;animation:spin .8s linear infinite" aria-hidden="true"></i>
+      <span>Sincronizando dados com o servidor...</span>
+    </div>
     <div class="topbar">
       <h1 id="pg-ttl">Dashboard</h1>
       <div class="topbar-act" id="pg-act"></div>
@@ -449,29 +460,12 @@ textarea{resize:vertical;min-height:52px}
 <div class="mw" id="mw-prod"><div class="mo lg">
   <div class="mh"><h2 id="mp-t">Novo produto</h2><button class="xb" onclick="fecharM('prod')">&times;</button></div>
   <div class="mb"><div id="a-mprod"></div><div class="fg c3">
-    <div class="f"><label>Código <small id="p-cod-lbl" style="color:var(--blue-txt);font-weight:400;display:none">✓ gerado</small></label><input id="p-cod" placeholder="000001" maxlength="6" style="font-family:monospace;letter-spacing:2px;font-size:14px;font-weight:600"></div>
+    <input type="hidden" id="p-cod">
     <div class="f"><label>Unidade</label><select id="p-un"><option>un</option><option>kg</option><option>cx</option><option>pç</option><option>m</option><option>L</option></select></div>
     <div class="f"><label>Categoria</label><input id="p-cat" placeholder="ex: Eletrônicos"></div>
     <div class="f s3"><label>Nome do produto *</label><input id="p-nm" placeholder="Descrição completa do produto"></div>
     <div class="f"><label>Marca</label><input id="p-marca" placeholder="ex: Samsung, Nike..."></div>
-    <div class="f"><label>Código de barras</label><input id="p-barras" placeholder="EAN-13 ou outro"></div>
-    <div class="f"><label>Preço de venda (R$)</label><input id="p-pr" type="number" min="0" step="0.01" placeholder="0,00"></div>
-    <div class="f"><label>Custo (R$)</label><input id="p-cu" type="number" min="0" step="0.01" placeholder="0,00"></div>
-    <div class="f"><label>Estoque inicial</label><input id="p-est" type="number" min="0" value="0"></div>
-    <div class="f"><label>Estoque mínimo</label><input id="p-emin" type="number" min="0" value="5"></div>
-    <div class="f"><label>Estoque máximo</label><input id="p-emax" type="number" min="0" value="100"></div>
-    <div class="f s3"><label>Fornecedor</label><select id="p-for"><option value="">— Sem fornecedor —</option></select></div>
-    <div class="f s3"><label>Observações</label><textarea id="p-ob" placeholder="Informações adicionais..."></textarea></div>
-  </div></div>
-  <div class="mf"><button class="btn" onclick="fecharM('prod')">Cancelar</button><button class="btn bp" id="btn-prod" onclick="salvarProd()"><i class="ti ti-device-floppy"></i>Salvar produto</button></div>
-</div></div>
-
-<!-- Cliente -->
-<div class="mw" id="mw-cli"><div class="mo">
-  <div class="mh"><h2 id="mc-t">Novo cliente</h2><button class="xb" onclick="fecharM('cli')">&times;</button></div>
-  <div class="mb"><div id="a-mcli"></div><div class="fg">
-    <div class="f s2"><label>Nome / Razão social * <small style="color:var(--txt2);font-weight:400">(pressione Enter para gerar código)</small></label><input id="c-nm" onkeydown="gerarCodigo('cli',event)"></div>
-    <div class="f"><label>Código <small id="c-cod-lbl" style="color:var(--blue-txt);font-weight:400;display:none">✓ gerado</small></label><input id="c-cod" placeholder="000001" maxlength="6" style="font-family:monospace;letter-spacing:2px;font-size:14px;font-weight:600"></div>
+    <input type="hidden" id="c-cod">
     <div class="f"><label>CPF / CNPJ</label><input id="c-doc"></div>
     <div class="f"><label>Tipo</label><select id="c-tp"><option>Pessoa física</option><option>Pessoa jurídica</option></select></div>
     <div class="f"><label>Telefone</label><input id="c-tel"></div>
@@ -491,7 +485,7 @@ textarea{resize:vertical;min-height:52px}
   <div class="mh"><h2 id="mf-t">Novo fornecedor</h2><button class="xb" onclick="fecharM('forn')">&times;</button></div>
   <div class="mb"><div id="a-mforn"></div><div class="fg">
     <div class="f s2"><label>Razão social *</label><input id="f-nm"></div>
-    <div class="f"><label>Código <small id="f-cod-lbl" style="color:var(--blue-txt);font-weight:400;display:none">✓ gerado</small></label><input id="f-cod" placeholder="000001" maxlength="6" style="font-family:monospace;letter-spacing:2px;font-size:14px;font-weight:600"></div>
+    <input type="hidden" id="f-cod">
     <div class="f"><label>CNPJ</label><input id="f-cnpj"></div>
     <div class="f"><label>Contato</label><input id="f-ct"></div>
     <div class="f"><label>Telefone</label><input id="f-tel"></div>
@@ -667,8 +661,7 @@ async function salvarConfig() {
     document.getElementById('loading-screen').classList.remove('hide');
     document.querySelector('#loading-screen div:last-child').textContent = 'Conectando...';
 // ── GERAÇÃO AUTOMÁTICA DE CÓDIGO NUMÉRICO SEQUENCIAL ─────────
-// Contadores locais por tipo (sincronizados com o banco ao abrir o modal)
-const _contadores = { prod: 0, cli: 0, forn: 0 };
+// (_contadores declarado no topo do script)
 
 // Formata número com zeros à esquerda — sempre 6 dígitos: 000001
 function padCod(n) {
@@ -677,8 +670,8 @@ function padCod(n) {
 
 // Busca o maior código numérico existente no banco e atualiza o contador
 async function sincronizarContador(tipo) {
-  // Se não há sessão/workspace ainda, usa apenas o contador local
-  if (!sb || !wsId()) return;
+  // Se não há sessão/workspace ou está offline, usa contador local
+  if (!sb || !wsId() || typeof _isOnline === 'undefined' || !_isOnline) return;
   const cfg = {
     prod: { tabela: 'produtos',     campo: 'codigo' },
     cli:  { tabela: 'clientes',     campo: 'codigo' },
@@ -702,41 +695,12 @@ async function sincronizarContador(tipo) {
 
 // Gera e exibe o próximo código com animação
 function aplicarProximoCodigo(tipo) {
-  const cfg = {
-    prod: { codId: 'p-cod', lblId: 'p-cod-lbl' },
-    cli:  { codId: 'c-cod', lblId: 'c-cod-lbl' },
-    forn: { codId: 'f-cod', lblId: 'f-cod-lbl' },
-  };
-  const { codId, lblId } = cfg[tipo];
-  const codEl = document.getElementById(codId);
-  const lblEl = document.getElementById(lblId);
-  if (!codEl) return;
-
+  // Gera o próximo código e armazena no campo hidden
+  const ids = { prod: 'p-cod', cli: 'c-cod', forn: 'f-cod' };
+  const el = document.getElementById(ids[tipo]);
+  if (!el) return;
   _contadores[tipo]++;
-  const codigo = padCod(_contadores[tipo]);
-
-  // Garante que o campo está editável
-  codEl.removeAttribute('readonly');
-  codEl.removeAttribute('disabled');
-  codEl.value = codigo;
-
-  // Animação verde
-  codEl.style.transition = 'all .3s';
-  codEl.style.borderColor = '#22c55e';
-  codEl.style.background  = '#f0fdf4';
-  codEl.style.color       = '#166534';
-  codEl.style.fontWeight  = '700';
-  setTimeout(() => {
-    codEl.style.borderColor = '';
-    codEl.style.background  = '';
-    codEl.style.color       = '';
-  }, 2000);
-
-  // Label "✓ gerado"
-  if (lblEl) {
-    lblEl.style.display = '';
-    setTimeout(() => { lblEl.style.display = 'none'; }, 4000);
-  }
+  el.value = padCod(_contadores[tipo]);
 }
 
 // Chamado ao abrir modal de NOVO registro — nunca bloqueia a abertura
@@ -750,11 +714,9 @@ async function gerarCodigoAoAbrirModal(tipo) {
   }
 }
 
-// Reseta campo código ao abrir modal de EDIÇÃO
+// Limpa código ao abrir modal de edição (ou mantém o existente)
 function resetCodLabel(tipo) {
-  const lblIds = { prod: 'p-cod-lbl', cli: 'c-cod-lbl', forn: 'f-cod-lbl' };
-  const el = document.getElementById(lblIds[tipo]);
-  if (el) el.style.display = 'none';
+  // Nada a fazer — código fica no campo hidden e só é gerado ao salvar novo registro
 }
 
 
@@ -763,10 +725,7 @@ function resetCodLabel(tipo) {
 // ║  Estratégia: IndexedDB como cache local + fila de sync       ║
 // ╚══════════════════════════════════════════════════════════════╝
 
-// ── Estado de conectividade ───────────────────────────────────
-let _isOnline = navigator.onLine;
-let _isSyncing = false;
-let _dbLocal = null; // IndexedDB instance
+// ── Estado de conectividade (variáveis declaradas no topo do script) ──
 
 // ── IndexedDB: banco local ────────────────────────────────────
 const IDB_NAME    = 'sistema_comercial_v1';
@@ -1146,6 +1105,12 @@ let SESSION = null, WS = null, ME = null;
 let _produtos = [], _clientes = [], _fornecedores = [];
 let iV = [], mV = 'venda', adjId = null, tipoC = 'cr';
 let editId = {};
+
+// ── Estado offline (declarado aqui para ficar disponível globalmente) ──
+let _isOnline   = navigator.onLine;
+let _isSyncing  = false;
+let _dbLocal    = null;
+const _contadores = { prod: 0, cli: 0, forn: 0 };
 
 const R = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const hj = () => new Date().toISOString().split('T')[0];
@@ -1582,7 +1547,6 @@ async function openProd(id = null) {
   }
 
   abrirM('prod');
-  if (!id) gerarCodigoAoAbrirModal('prod');
 }
 
 async function salvarProd() {
@@ -1590,9 +1554,14 @@ async function salvarProd() {
   if (!nm) { alrt('mprod','Informe o nome do produto.','d'); return; }
   setLoading('btn-prod', true);
   try {
+    // Gera código automático se for novo registro
+    if (!editId.prod) {
+      await sincronizarContador('prod');
+      aplicarProximoCodigo('prod');
+    }
     const payload = {
       nome: nm,
-      codigo: document.getElementById('p-cod').value.trim(),
+      codigo: document.getElementById('p-cod').value.trim() || padCod(Date.now()).slice(-6),
       categoria: document.getElementById('p-cat').value.trim(),
       marca: document.getElementById('p-marca').value.trim(),
       codigo_barras: document.getElementById('p-barras').value.trim(),
@@ -1673,7 +1642,6 @@ async function openCli(id = null) {
   }
 
   abrirM('cli');
-  if (!id) gerarCodigoAoAbrirModal('cli');
 }
 
 async function salvarCli() {
@@ -1681,9 +1649,13 @@ async function salvarCli() {
   if (!nm) { alrt('mcli','Informe o nome.','d'); return; }
   setLoading('btn-cli', true);
   try {
+    if (!editId.cli) {
+      await sincronizarContador('cli');
+      aplicarProximoCodigo('cli');
+    }
     const payload = {
       nome: nm,
-      codigo: document.getElementById('c-cod').value.trim(),
+      codigo: document.getElementById('c-cod').value.trim() || padCod(Date.now()).slice(-6),
       cpf_cnpj: document.getElementById('c-doc').value.trim(),
       tipo: document.getElementById('c-tp').value,
       telefone: document.getElementById('c-tel').value.trim(),
@@ -1758,7 +1730,6 @@ async function openForn(id = null) {
   }
 
   abrirM('forn');
-  if (!id) gerarCodigoAoAbrirModal('forn');
 }
 
 async function salvarForn() {
@@ -1766,9 +1737,13 @@ async function salvarForn() {
   if (!nm) { alrt('mforn','Informe a razão social.','d'); return; }
   setLoading('btn-forn', true);
   try {
+    if (!editId.forn) {
+      await sincronizarContador('forn');
+      aplicarProximoCodigo('forn');
+    }
     const payload = {
       nome: nm,
-      codigo: document.getElementById('f-cod').value.trim(),
+      codigo: document.getElementById('f-cod').value.trim() || padCod(Date.now()).slice(-6),
       cnpj: document.getElementById('f-cnpj').value.trim(),
       contato: document.getElementById('f-ct').value.trim(),
       telefone: document.getElementById('f-tel').value.trim(),
