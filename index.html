@@ -1399,6 +1399,7 @@ async function updBadges() {
 // ── DASHBOARD ────────────────────────────────────────────────
 async function rDash() {
   const wid = wsId();
+  console.log('[rDash] wid=', wid, '| sb=', !!sb, '| _isOnline=', _isOnline);
   const elVlist  = document.getElementById('d-vlist');
   const elAlrts  = document.getElementById('d-alrts');
   const elFin    = document.getElementById('d-fin');
@@ -1414,16 +1415,20 @@ async function rDash() {
     let vendasArr=[], lanArr=[], crArr=[], cpArr=[], prodArr=[];
 
     if (_isOnline) {
-      const [r1,r2,r3,r4,r5] = await Promise.all([
+      console.log('[rDash] Buscando dados do Supabase...');
+      const [r1,r2,r3,r4,r5] = await Promise.allSettled([
         sb.from('vendas').select('id,data,total,clientes(nome)').eq('workspace_id',wid),
         sb.from('lancamentos').select('tipo,valor,status').eq('workspace_id',wid),
         sb.from('contas_receber').select('status,vencimento').eq('workspace_id',wid),
         sb.from('contas_pagar').select('status,vencimento').eq('workspace_id',wid),
         sb.from('produtos').select('estoque,estoque_min').eq('workspace_id',wid),
       ]);
-      vendasArr = r1.data||[]; lanArr = r2.data||[];
-      crArr     = r3.data||[]; cpArr  = r4.data||[];
-      prodArr   = r5.data||[];
+      vendasArr = r1.value?.data||[]; lanArr = r2.value?.data||[];
+      crArr     = r3.value?.data||[]; cpArr  = r4.value?.data||[];
+      prodArr   = r5.value?.data||[];
+      console.log('[rDash] Resultados:', {vendas:vendasArr.length, lan:lanArr.length, cr:crArr.length, cp:cpArr.length, prod:prodArr.length});
+      // Log de erros individuais
+      [r1,r2,r3,r4,r5].forEach((r,i)=>{ if(r.status==='rejected') console.error('[rDash] Query',i,'falhou:',r.reason); });
     } else {
       [vendasArr,lanArr,crArr,cpArr,prodArr] = await Promise.all([
         idbGetAll('vendas').then(d=>d.filter(r=>r.workspace_id===wid)),
@@ -1480,9 +1485,10 @@ async function rDash() {
     updBadges();
 
   } catch(e) {
-    console.error('[Dashboard] Erro:', e);
+    console.error('[Dashboard] Erro completo:', e);
+    console.error('[Dashboard] Stack:', e.stack);
     if (elVlist) elVlist.innerHTML = `<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro: ${e.message}</div>`;
-    if (elAlrts) elAlrts.innerHTML = `<div class="alrt aw"><i class="ti ti-alert-triangle"></i>Verifique o console (F12) para detalhes.</div>`;
+    if (elAlrts) elAlrts.innerHTML = `<div class="alrt aw"><i class="ti ti-alert-triangle"></i>Pressione F12 → Console para ver o erro completo.</div>`;
   }
 }
 
