@@ -334,7 +334,7 @@ textarea{resize:vertical;min-height:52px}
           <div class="sc"><div class="sl"><i class="ti ti-box"></i>Estoque baixo</div><div class="sv" id="d-est">—</div><div class="sd dn">produtos</div></div>
         </div>
         <div class="g2">
-          <div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-shopping-cart"></i>Últimas vendas</div></div><div id="d-vlist"><div class="emp">Carregando...</div></div></div>
+          <div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-shopping-cart"></i>Últimas vendas</div></div><div id="d-vlist"><div class="emp">—</div></div></div>
           <div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-bell"></i>Alertas</div></div><div id="d-alrts"></div></div>
         </div>
         <div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-chart-bar"></i>Resumo financeiro</div></div><div class="g3" id="d-fin"></div></div>
@@ -1115,7 +1115,7 @@ const _contadores = { prod: 0, cli: 0, forn: 0 };
 const R = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const hj = () => new Date().toISOString().split('T')[0];
 const mesAtual = () => new Date().toISOString().slice(0,7);
-const wsId = () => WS?.id;
+const wsId = () => WS?.id || null;
 
 // ── BOOT ─────────────────────────────────────────────────────
 async function boot() {
@@ -1200,9 +1200,12 @@ function showApp() {
   // Atualiza estado de conectividade
   if (!navigator.onLine) setOffline();
   else mostrarBarraOffline(false);
-  // Faz cache de todos os dados para uso offline
-  cachearTudo().then(() => atualizarBadgeSync());
+  // Navega para o dashboard e só DEPOIS faz o cache em background
   nav('dash');
+  // Cache assíncrono — não bloqueia a UI
+  setTimeout(() => {
+    cachearTudo().then(() => atualizarBadgeSync()).catch(()=>{});
+  }, 500);
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
@@ -1344,7 +1347,7 @@ function nav(p) {
   };
   document.getElementById('pg-act').innerHTML = A[p] || '';
   const pages = { dash: rDash, prod: rProd, cli: rCli, forn: rForn, vend: rVend, orc: rOrc, fin: rFin, cr: rCR, cp: rCP, pgto: rPgto, est: rEst, saas: rSaas };
-  if (pages[p]) pages[p]();
+  if (pages[p]) pages[p]().catch(e => console.error('Erro ao renderizar', p, e));
 }
 
 function abrirM(id) { document.getElementById('mw-' + id).classList.add('open'); }
@@ -1395,8 +1398,19 @@ async function updBadges() {
 
 // ── DASHBOARD ────────────────────────────────────────────────
 async function rDash() {
+  const wid = wsId();
+  const elVlist  = document.getElementById('d-vlist');
+  const elAlrts  = document.getElementById('d-alrts');
+  const elFin    = document.getElementById('d-fin');
+
+  if (!wid) {
+    if (elVlist) elVlist.innerHTML = '<div class="emp">Aguardando sessão...</div>';
+    return;
+  }
+  if (elVlist) elVlist.innerHTML = '<div class="emp" style="color:var(--txt2)">Carregando...</div>';
+
   try {
-    const hjS = hj(), mS = mesAtual(), wid = wsId();
+    const hjS = hj(), mS = mesAtual();
     let vendasArr=[], lanArr=[], crArr=[], cpArr=[], prodArr=[];
 
     if (_isOnline) {
@@ -1408,10 +1422,10 @@ async function rDash() {
         sb.from('produtos').select('estoque,estoque_min').eq('workspace_id',wid),
       ]);
       vendasArr = r1.data||[]; lanArr = r2.data||[];
-      crArr = r3.data||[];     cpArr = r4.data||[];
-      prodArr = r5.data||[];
+      crArr     = r3.data||[]; cpArr  = r4.data||[];
+      prodArr   = r5.data||[];
     } else {
-      [vendasArr, lanArr, crArr, cpArr, prodArr] = await Promise.all([
+      [vendasArr,lanArr,crArr,cpArr,prodArr] = await Promise.all([
         idbGetAll('vendas').then(d=>d.filter(r=>r.workspace_id===wid)),
         idbGetAll('lancamentos').then(d=>d.filter(r=>r.workspace_id===wid)),
         idbGetAll('contas_receber').then(d=>d.filter(r=>r.workspace_id===wid)),
@@ -1420,7 +1434,7 @@ async function rDash() {
       ]);
     }
 
-    // Stats
+    // Cálculos
     const vm  = vendasArr.filter(x=>(x.data||'').startsWith(mS));
     const rec = lanArr.filter(l=>l.tipo==='receita'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
     const des = lanArr.filter(l=>l.tipo==='despesa' &&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
@@ -1430,24 +1444,23 @@ async function rDash() {
     const bx  = prodArr.filter(p=>Number(p.estoque||0)<=Number(p.estoque_min||5)).length;
     const zer = prodArr.filter(p=>Number(p.estoque||0)<=0).length;
 
-    // Cards superiores
-    document.getElementById('d-vmes').textContent  = vm.length;
-    document.getElementById('d-vval').textContent  = R(vm.reduce((s,x)=>s+Number(x.total||0),0))+' no mês';
-    document.getElementById('d-sal').textContent   = R(sal);
-    document.getElementById('d-sal-d').textContent = sal>=0?'↑ Positivo':'↓ Negativo';
-    document.getElementById('d-sal-d').className   = 'sd '+(sal>=0?'up':'dn');
-    document.getElementById('d-venc').textContent  = crV+cpV;
-    document.getElementById('d-venc-d').textContent= `${crV} receber · ${cpV} pagar`;
-    document.getElementById('d-est').textContent   = bx;
+    // Cards
+    document.getElementById('d-vmes').textContent   = vm.length;
+    document.getElementById('d-vval').textContent   = R(vm.reduce((s,x)=>s+Number(x.total||0),0))+' no mês';
+    document.getElementById('d-sal').textContent    = R(sal);
+    document.getElementById('d-sal-d').textContent  = sal>=0?'↑ Positivo':'↓ Negativo';
+    document.getElementById('d-sal-d').className    = 'sd '+(sal>=0?'up':'dn');
+    document.getElementById('d-venc').textContent   = crV+cpV;
+    document.getElementById('d-venc-d').textContent = `${crV} receber · ${cpV} pagar`;
+    document.getElementById('d-est').textContent    = bx;
 
     // Últimas vendas
     const uv = [...vendasArr].sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||'')).slice(0,5);
-    const dvl = document.getElementById('d-vlist');
-    dvl.innerHTML = uv.length
+    elVlist.innerHTML = uv.length
       ? '<table><thead><tr><th style="width:60px">#</th><th>Cliente</th><th style="width:95px">Total</th></tr></thead><tbody>'
         + uv.map(x=>`<tr><td><small style="color:var(--txt2)">${String(x.id||'').slice(-6)}</small></td><td>${x.clientes?.nome||'—'}</td><td>${R(x.total)}</td></tr>`).join('')
         + '</tbody></table>'
-      : '<div class="emp">Nenhuma venda ainda.</div>';
+      : '<div class="emp">Nenhuma venda registrada.</div>';
 
     // Alertas
     const als = [];
@@ -1456,23 +1469,26 @@ async function rDash() {
     if (bx)  als.push({m:`${bx} produto(s) com estoque baixo`,t:'w',i:'ti-alert-triangle'});
     if (zer) als.push({m:`${zer} produto(s) sem estoque`,t:'d',i:'ti-box'});
     if (!als.length) als.push({m:'Tudo em ordem — nenhum alerta.',t:'s',i:'ti-circle-check'});
-    document.getElementById('d-alrts').innerHTML = als.map(a=>`<div class="alrt a${a.t}" style="margin-bottom:6px"><i class="ti ${a.i}"></i>${a.m}</div>`).join('');
+    if (elAlrts) elAlrts.innerHTML = als.map(a=>`<div class="alrt a${a.t}" style="margin-bottom:6px"><i class="ti ${a.i}"></i>${a.m}</div>`).join('');
 
     // Resumo financeiro
-    document.getElementById('d-fin').innerHTML = `
+    if (elFin) elFin.innerHTML = `
       <div class="sc"><div class="sl"><i class="ti ti-arrow-down-circle"></i>Receitas</div><div class="sv" style="color:var(--green-txt)">${R(rec)}</div></div>
       <div class="sc"><div class="sl"><i class="ti ti-arrow-up-circle"></i>Despesas</div><div class="sv" style="color:var(--red-txt)">${R(des)}</div></div>
       <div class="sc"><div class="sl"><i class="ti ti-scale"></i>Saldo</div><div class="sv" style="color:var(--${sal>=0?'blue':'red'}-txt)">${R(sal)}</div></div>`;
 
     updBadges();
+
   } catch(e) {
-    console.error('Erro no dashboard:', e);
-    document.getElementById('d-vlist').innerHTML = `<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro ao carregar: ${e.message}</div>`;
+    console.error('[Dashboard] Erro:', e);
+    if (elVlist) elVlist.innerHTML = `<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro: ${e.message}</div>`;
+    if (elAlrts) elAlrts.innerHTML = `<div class="alrt aw"><i class="ti ti-alert-triangle"></i>Verifique o console (F12) para detalhes.</div>`;
   }
 }
 
 
 async function rProd(f) {
+  if (!wsId()) return;
   document.getElementById('act-prod').innerHTML = `<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`;
   const tb = document.getElementById('tb-prod');
   try {
@@ -1586,6 +1602,7 @@ async function salvarProd() {
 
 // ── CLIENTES ─────────────────────────────────────────────────
 async function rCli(f) {
+  if (!wsId()) return;
   document.getElementById('act-cli').innerHTML = `<button class="btn bp sm" onclick="openCli()"><i class="ti ti-plus"></i>Novo cliente</button>`;
   const tb = document.getElementById('tb-cli');
   try {
@@ -1679,6 +1696,7 @@ async function salvarCli() {
 
 // ── FORNECEDORES ─────────────────────────────────────────────
 async function rForn(f) {
+  if (!wsId()) return;
   document.getElementById('act-forn').innerHTML = `<button class="btn bp sm" onclick="openForn()"><i class="ti ti-plus"></i>Novo fornecedor</button>`;
   const tb = document.getElementById('tb-forn');
   try {
@@ -1765,6 +1783,7 @@ async function salvarForn() {
 
 // ── VENDAS ───────────────────────────────────────────────────
 async function rVend() {
+  if (!wsId()) return;
   const tb = document.getElementById('tb-vend');
   try {
     let data;
@@ -1782,6 +1801,7 @@ async function rVend() {
 }
 
 async function rOrc() {
+  if (!wsId()) return;
   const tb = document.getElementById('tb-orc');
   try {
     let data;
@@ -1953,6 +1973,7 @@ async function verDoc(id, tipo) {
 
 // ── FINANCEIRO ───────────────────────────────────────────────
 async function rFin() {
+  if (!wsId()) return;
   const tb = document.getElementById('tb-lan');
   try {
     let data;
@@ -2015,6 +2036,7 @@ async function salvarLan() {
 
 // ── CONTAS ───────────────────────────────────────────────────
 async function rCR() {
+  if (!wsId()) return;
   const hjS = hj(), mS = mesAtual();
   try {
     let l;
@@ -2049,6 +2071,7 @@ async function rCR() {
 }
 
 async function rCP() {
+  if (!wsId()) return;
   const hjS = hj(), mS = mesAtual();
   try {
     let l;
@@ -2160,6 +2183,7 @@ async function rPgto() {
 
 // ── ESTOQUE ──────────────────────────────────────────────────
 async function rEst() {
+  if (!wsId()) return;
   try {
     let l;
     if (_isOnline) {
