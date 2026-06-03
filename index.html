@@ -660,6 +660,15 @@ async function salvarConfig() {
     document.getElementById('setup-screen').style.display = 'none';
     document.getElementById('loading-screen').classList.remove('hide');
     document.querySelector('#loading-screen div:last-child').textContent = 'Conectando...';
+    await boot();
+  } catch(e) {
+    err.textContent = 'Erro de conexão: ' + (e.message || 'Verifique a URL e a Key do Supabase.');
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Conectar e continuar';
+  }
+}
+
 // ── GERAÇÃO AUTOMÁTICA DE CÓDIGO NUMÉRICO SEQUENCIAL ─────────
 // (_contadores declarado no topo do script)
 
@@ -1075,12 +1084,23 @@ window.addEventListener('offline', () => setOffline());
 
 // Verifica conectividade real (não apenas o evento do browser)
 async function verificarConectividadeReal() {
+  // Usa o próprio Supabase como ping (evita CORS)
+  // Se não tem credenciais configuradas, usa apenas o estado do navegador
+  if (!sb || !isCfgOk()) {
+    const online = navigator.onLine;
+    if (online && !_isOnline) setOnline();
+    if (!online && _isOnline) setOffline();
+    return;
+  }
   try {
-    const r = await fetch('https://www.gstatic.com/generate_204', { method: 'HEAD', cache: 'no-cache', signal: AbortSignal.timeout(3000) });
-    if (!r.ok) throw new Error();
+    const { error } = await sb.from('workspaces').select('id').limit(1);
+    // Se respondeu (mesmo com erro de permissão), está online
     if (!_isOnline) setOnline();
   } catch(e) {
-    if (_isOnline) setOffline();
+    // Erro de rede = offline
+    if (e.message?.includes('fetch') || e.message?.includes('Failed') || e.message?.includes('NetworkError')) {
+      if (_isOnline) setOffline();
+    }
   }
 }
 
@@ -1093,12 +1113,6 @@ toastStyle.textContent = '@keyframes slideIn{from{transform:translateX(100%);opa
 document.head.appendChild(toastStyle);
 
 boot();
-  } catch(e) {
-    err.textContent = 'Erro de conexão: ' + (e.message || 'Verifique a URL e a Key do Supabase.');
-    err.style.display = 'block';
-    btn.disabled = false; btn.textContent = 'Conectar e continuar';
-  }
-}
 
 // ── ESTADO ───────────────────────────────────────────────────
 let SESSION = null, WS = null, ME = null;
