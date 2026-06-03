@@ -596,7 +596,7 @@ textarea{resize:vertical;min-height:52px}
 
 <!-- ══ SCRIPTS ═══════════════════════════════════════════════ -->
 <script>
-// ── CONFIG ───────────────────────────────────────────────────
+// ── CONFIG ─────────────────────────────────────────────────
 const CFG_URL_KEY = 'sb_url';
 const CFG_KEY_KEY = 'sb_key';
 
@@ -606,20 +606,307 @@ function getCfg() {
     key: localStorage.getItem(CFG_KEY_KEY) || '',
   };
 }
-
 function isCfgOk() {
   const { url, key } = getCfg();
   return url.startsWith('https://') && url.includes('.supabase.co') && key.length > 20;
 }
 
-let sb = null;
 const { createClient } = supabase;
-
+let sb = null;
 function initSb() {
   const { url, key } = getCfg();
   sb = createClient(url, key);
 }
 
+// ── ESTADO GLOBAL ───────────────────────────────────────────
+let SESSION = null, WS = null, ME = null;
+let _produtos = [], _clientes = [], _fornecedores = [];
+let iV = [], modoVenda = 'venda', adjId = null, tipoC = 'cr';
+let editId = {};
+let _isOnline = navigator.onLine;
+
+// ── UTILITÁRIOS ─────────────────────────────────────────────
+const R   = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const hj  = () => new Date().toISOString().split('T')[0];
+const mes = () => new Date().toISOString().slice(0,7);
+const wsId= () => WS?.id;
+
+function setLoading(btnId, on, label='Salvar') {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = on;
+  btn.innerHTML = on
+    ? '<span class="spin-inline"></span> Salvando...'
+    : `<i class="ti ti-device-floppy"></i>${label}`;
+}
+
+function alrt(id, msg, tipo) {
+  const el = document.getElementById('a-' + id);
+  if (!el) return;
+  const ic = tipo==='s'?'ti-circle-check':tipo==='w'?'ti-alert-triangle':'ti-alert-circle';
+  const cl = tipo==='s'?'as':tipo==='w'?'aw':'ad';
+  el.innerHTML = `<div class="alrt ${cl}"><i class="ti ${ic}"></i>${msg}</div>`;
+  if (tipo==='s') setTimeout(()=>{ el.innerHTML=''; }, 3000);
+}
+
+function abrirM(id) { document.getElementById('mw-'+id)?.classList.add('open'); }
+function fecharM(id) { document.getElementById('mw-'+id)?.classList.remove('open'); }
+
+function mostrarToast(msg, tipo='success') {
+  const cores = {
+    success:{bg:'#f0fdf4',bdr:'#22c55e',txt:'#166534'},
+    error:  {bg:'#fef2f2',bdr:'#ef4444',txt:'#991b1b'},
+    info:   {bg:'#eff6ff',bdr:'#3b82f6',txt:'#1d4ed8'},
+  };
+  const c = cores[tipo]||cores.success;
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;
+    background:${c.bg};border:1px solid ${c.bdr};color:${c.txt};
+    padding:12px 18px;border-radius:10px;font-size:13px;font-weight:500;
+    box-shadow:0 4px 20px rgba(0,0,0,.12);max-width:360px;animation:slideIn .3s ease;`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .4s'; setTimeout(()=>el.remove(),400); }, 4000);
+}
+
+// ── INDEXEDDB (OFFLINE) ─────────────────────────────────────
+const IDB_NAME = 'sistema_comercial_v1';
+let _dbLocal = null;
+const STORES = ['produtos','clientes','fornecedores','vendas','orcamentos',
+                'lancamentos','contas_receber','contas_pagar','sync_queue'];
+
+function abrirIDB() {
+  return new Promise((resolve, reject) => {
+    if (_dbLocal) { resolve(_dbLocal); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      STORES.forEach(s => { if (!db.objectStoreNames.contains(s)) db.createObjectStore(s,{keyPath:'id'}); });
+    };
+    req.onsuccess = e => { _dbLocal = e.target.result; resolve(_dbLocal); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+async function idbGetAll(store) {
+  const db = await abrirIDB();
+  return new Promise((res,rej) => {
+    const req = db.transaction(store,'readonly').objectStore(store).getAll();
+    req.onsuccess = ()=>res(req.result||[]);
+    req.onerror   = ()=>rej(req.error);
+  });
+}
+async function idbPut(store, item) {
+  const db = await abrirIDB();
+  return new Promise((res,rej) => {
+    const req = db.transaction(store,'readwrite').objectStore(store).put(item);
+    req.onsuccess = ()=>res();
+    req.onerror   = ()=>rej(req.error);
+  });
+}
+async function idbDelete(store, key) {
+  const db = await abrirIDB();
+  return new Promise((res,rej) => {
+    const req = db.transaction(store,'readwrite').objectStore(store).delete(key);
+    req.onsuccess = ()=>res();
+    req.onerror   = ()=>rej(req.error);
+  });
+}
+async function idbClear(store) {
+  const db = await abrirIDB();
+  return new Promise((res,rej) => {
+    const req = db.transaction(store,'readwrite').objectStore(store).clear();
+    req.onsuccess = ()=>res();
+    req.onerror   = ()=>rej(req.error);
+  });
+}
+
+// Fila de sync offline
+async function enfileirarSync(tabela, op, payload) {
+  await idbPut('sync_queue', {
+    id: 'sq_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+    tabela, op, payload, createdAt: new Date().toISOString()
+  });
+  atualizarBadgeSync();
+}
+
+async function atualizarBadgeSync() {
+  const fila = await idbGetAll('sync_queue');
+  const n = fila.length;
+  const el = document.getElementById('sync-pending');
+  if (el) { el.textContent = n+' pendente'+(n!==1?'s':''); el.style.display = n>0?'':'none'; }
+}
+
+// ── DBINSERT / DBUPDATE / DBDELETE com fallback offline ─────
+async function dbInsert(tabela, payload) {
+  const item = { ...payload, id: payload.id || ('local_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)) };
+  if (_isOnline) {
+    try {
+      const { data, error } = await sb.from(tabela).insert(payload).select().single();
+      if (error) throw error;
+      await idbPut(tabela, data);
+      return data;
+    } catch(e) {
+      if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
+        setOffline(); await idbPut(tabela,item); await enfileirarSync(tabela,'insert',payload); return item;
+      }
+      throw e;
+    }
+  } else {
+    await idbPut(tabela, item); await enfileirarSync(tabela,'insert',payload); return item;
+  }
+}
+
+async function dbUpdate(tabela, id, payload) {
+  if (_isOnline) {
+    try {
+      const { data, error } = await sb.from(tabela).update(payload).eq('id',id).select().single();
+      if (error) throw error;
+      await idbPut(tabela, { id, ...payload, ...data });
+      return data;
+    } catch(e) {
+      if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
+        setOffline();
+        const arr = await idbGetAll(tabela);
+        const loc = arr.find(r=>r.id===id)||{};
+        const upd = { ...loc, ...payload, id };
+        await idbPut(tabela, upd); await enfileirarSync(tabela,'update',{id,...payload}); return upd;
+      }
+      throw e;
+    }
+  } else {
+    const arr = await idbGetAll(tabela);
+    const loc = arr.find(r=>r.id===id)||{};
+    const upd = { ...loc, ...payload, id };
+    await idbPut(tabela, upd); await enfileirarSync(tabela,'update',{id,...payload}); return upd;
+  }
+}
+
+async function dbDeleteItem(tabela, id) {
+  if (_isOnline) {
+    try {
+      await sb.from(tabela).delete().eq('id',id);
+      await idbDelete(tabela, id);
+    } catch(e) {
+      if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
+        setOffline(); await idbDelete(tabela,id); await enfileirarSync(tabela,'delete',{id}); return;
+      }
+      throw e;
+    }
+  } else {
+    await idbDelete(tabela,id); await enfileirarSync(tabela,'delete',{id});
+  }
+}
+
+// ── GERAÇÃO DE CÓDIGO AUTOMÁTICO ────────────────────────────
+// Busca o maior código existente e retorna o próximo
+async function proximoCodigo(tipo) {
+  const tabelas = { prod:'produtos', cli:'clientes', forn:'fornecedores' };
+  const tabela  = tabelas[tipo];
+  try {
+    if (_isOnline && sb && wsId()) {
+      const { data } = await sb
+        .from(tabela).select('codigo')
+        .eq('workspace_id', wsId())
+        .not('codigo','is',null)
+        .order('codigo', { ascending: false })
+        .limit(1);
+      if (data && data.length > 0 && data[0].codigo) {
+        const n = parseInt(data[0].codigo, 10);
+        if (!isNaN(n)) return String(n + 1).padStart(6, '0');
+      }
+    } else {
+      const arr = await idbGetAll(tabela);
+      const codes = arr
+        .filter(r => r.workspace_id === wsId() && r.codigo)
+        .map(r => parseInt(r.codigo, 10))
+        .filter(n => !isNaN(n));
+      if (codes.length > 0) return String(Math.max(...codes) + 1).padStart(6, '0');
+    }
+  } catch(e) { /* fallback */ }
+  return '000001';
+}
+
+// ── CACHE OFFLINE ────────────────────────────────────────────
+async function cachearTudo() {
+  if (!_isOnline || !sb || !wsId()) return;
+  const tabelas = [
+    {n:'produtos',      q:()=>sb.from('produtos').select('*,fornecedores(nome)').eq('workspace_id',wsId())},
+    {n:'clientes',      q:()=>sb.from('clientes').select('*').eq('workspace_id',wsId())},
+    {n:'fornecedores',  q:()=>sb.from('fornecedores').select('*').eq('workspace_id',wsId())},
+    {n:'vendas',        q:()=>sb.from('vendas').select('*,clientes(nome),venda_itens(*)').eq('workspace_id',wsId())},
+    {n:'orcamentos',    q:()=>sb.from('orcamentos').select('*,clientes(nome),orcamento_itens(*)').eq('workspace_id',wsId())},
+    {n:'lancamentos',   q:()=>sb.from('lancamentos').select('*').eq('workspace_id',wsId())},
+    {n:'contas_receber',q:()=>sb.from('contas_receber').select('*,clientes(nome)').eq('workspace_id',wsId())},
+    {n:'contas_pagar',  q:()=>sb.from('contas_pagar').select('*,fornecedores(nome)').eq('workspace_id',wsId())},
+  ];
+  for (const t of tabelas) {
+    try {
+      const { data } = await t.q();
+      if (data) { await idbClear(t.n); for (const r of data) await idbPut(t.n, r); }
+    } catch(e) {}
+  }
+}
+
+// ── OFFLINE/ONLINE ───────────────────────────────────────────
+function mostrarBarraOffline(show) {
+  const el = document.getElementById('offline-bar');
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+function setOnline() {
+  if (_isOnline) return;
+  _isOnline = true;
+  mostrarBarraOffline(false);
+  document.title = 'Sistema Comercial';
+  mostrarToast('🌐 Conexão restaurada! Sincronizando...', 'info');
+  setTimeout(() => tentarSincronizar(), 1500);
+}
+function setOffline() {
+  if (!_isOnline) return;
+  _isOnline = false;
+  mostrarBarraOffline(true);
+  document.title = '📴 Offline — Sistema Comercial';
+  mostrarToast('📴 Sem conexão. Trabalhando no modo offline.', 'error');
+  atualizarBadgeSync();
+}
+window.addEventListener('online',  () => setOnline());
+window.addEventListener('offline', () => setOffline());
+setInterval(async () => {
+  if (!sb || !isCfgOk()) return;
+  try {
+    const { error } = await sb.from('workspaces').select('id').limit(1);
+    if (!_isOnline) setOnline();
+  } catch(e) {
+    if (e.message?.includes('fetch')||e.message?.includes('Failed')) if (_isOnline) setOffline();
+  }
+}, 30000);
+
+async function tentarSincronizar() {
+  if (!_isOnline || !sb || !wsId()) return;
+  const fila = await idbGetAll('sync_queue');
+  if (!fila.length) return;
+  const el = document.getElementById('sync-bar');
+  if (el) el.style.display = 'flex';
+  for (const item of fila) {
+    try {
+      const { tabela, op, payload } = item;
+      const p = { ...payload };
+      if (p.id && String(p.id).startsWith('local_')) delete p.id;
+      if (op === 'insert') await sb.from(tabela).insert({ ...p, workspace_id: wsId() });
+      else if (op === 'update') { const { id, ...rest } = payload; if (id && !String(id).startsWith('local_')) await sb.from(tabela).update(rest).eq('id',id); }
+      else if (op === 'delete') { if (payload.id && !String(payload.id).startsWith('local_')) await sb.from(tabela).delete().eq('id',payload.id); }
+      await idbDelete('sync_queue', item.id);
+    } catch(e) {}
+  }
+  if (el) el.style.display = 'none';
+  await cachearTudo();
+  atualizarBadgeSync();
+  mostrarToast('✅ Dados sincronizados!', 'success');
+  const pg = document.getElementById('pg-ttl')?.textContent;
+  const m  = {Dashboard:'dash',Produtos:'prod',Clientes:'cli',Fornecedores:'forn',Vendas:'vend',Orçamentos:'orc','Fluxo de caixa':'fin','Contas a receber':'cr','Contas a pagar':'cp',Pagamentos:'pgto','Controle de estoque':'est'};
+  if (pg && m[pg]) nav(m[pg]);
+}
+
+// ── SETUP SCREEN ────────────────────────────────────────────
 function showSetup() {
   document.getElementById('loading-screen').classList.add('hide');
   document.getElementById('setup-screen').style.display = 'flex';
@@ -634,26 +921,19 @@ async function salvarConfig() {
   const url = document.getElementById('cfg-url').value.trim();
   const key = document.getElementById('cfg-key').value.trim();
   err.style.display = 'none';
-
   if (!url.startsWith('https://') || !url.includes('.supabase.co')) {
-    err.textContent = 'URL inválida. Deve ser no formato: https://xxxxxxxxxxx.supabase.co';
+    err.textContent = 'URL inválida. Formato: https://xxxxxxxxxxx.supabase.co';
     err.style.display = 'block'; return;
   }
   if (key.length < 20) {
-    err.textContent = 'Anon Key inválida. Verifique a chave no painel do Supabase.';
+    err.textContent = 'Anon Key inválida.';
     err.style.display = 'block'; return;
   }
-
-  btn.disabled = true; btn.innerHTML = '<span class="spin-inline"></span> Testando conexão...';
-
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin-inline"></span> Testando conexão...';
   try {
     const testSb = createClient(url, key);
-    // Testa a conexão fazendo uma query simples
-    const { error } = await testSb.from('workspaces').select('id').limit(1);
-    // Se o erro for de permissão (RLS), está OK — conexão funciona
-    if (error && error.code !== 'PGRST301' && error.message.includes('fetch')) {
-      throw new Error('Não foi possível conectar. Verifique a URL e a Key.');
-    }
+    await testSb.from('workspaces').select('id').limit(1);
     localStorage.setItem(CFG_URL_KEY, url);
     localStorage.setItem(CFG_KEY_KEY, key);
     initSb();
@@ -662,567 +942,73 @@ async function salvarConfig() {
     document.querySelector('#loading-screen div:last-child').textContent = 'Conectando...';
     await boot();
   } catch(e) {
-    err.textContent = 'Erro de conexão: ' + (e.message || 'Verifique a URL e a Key do Supabase.');
+    err.textContent = 'Erro de conexão: ' + (e.message || 'Verifique a URL e a Key.');
     err.style.display = 'block';
     btn.disabled = false;
     btn.textContent = 'Conectar e continuar';
   }
 }
 
-// ── GERAÇÃO AUTOMÁTICA DE CÓDIGO NUMÉRICO SEQUENCIAL ─────────
-// (_contadores declarado no topo do script)
-
-// Formata número com zeros à esquerda — sempre 6 dígitos: 000001
-function padCod(n) {
-  return String(Math.max(1, n)).padStart(6, '0');
+function resetConfig() {
+  localStorage.removeItem(CFG_URL_KEY);
+  localStorage.removeItem(CFG_KEY_KEY);
+  document.getElementById('auth-screen').classList.remove('show');
+  showSetup();
 }
 
-// Busca o maior código numérico existente no banco e atualiza o contador
-async function sincronizarContador(tipo) {
-  // Se não há sessão/workspace ou está offline, usa contador local
-  if (!sb || !wsId() || typeof _isOnline === 'undefined' || !_isOnline) return;
-  const cfg = {
-    prod: { tabela: 'produtos',     campo: 'codigo' },
-    cli:  { tabela: 'clientes',     campo: 'codigo' },
-    forn: { tabela: 'fornecedores', campo: 'codigo' },
-  };
-  const { tabela, campo } = cfg[tipo];
-  try {
-    const { data } = await sb
-      .from(tabela)
-      .select(campo)
-      .eq('workspace_id', wsId())
-      .not(campo, 'is', null)
-      .order(campo, { ascending: false })
-      .limit(1);
-    if (data && data.length > 0 && data[0][campo]) {
-      const num = parseInt(data[0][campo], 10);
-      if (!isNaN(num) && num > _contadores[tipo]) _contadores[tipo] = num;
-    }
-  } catch(e) { /* usa contador local */ }
-}
-
-// Gera e exibe o próximo código com animação
-function aplicarProximoCodigo(tipo) {
-  // Gera o próximo código e armazena no campo hidden
-  const ids = { prod: 'p-cod', cli: 'c-cod', forn: 'f-cod' };
-  const el = document.getElementById(ids[tipo]);
-  if (!el) return;
-  _contadores[tipo]++;
-  el.value = padCod(_contadores[tipo]);
-}
-
-// Chamado ao abrir modal de NOVO registro — nunca bloqueia a abertura
-async function gerarCodigoAoAbrirModal(tipo) {
-  try {
-    await sincronizarContador(tipo);
-    aplicarProximoCodigo(tipo);
-  } catch(e) {
-    // Se falhar, apenas incrementa o contador local e gera mesmo assim
-    aplicarProximoCodigo(tipo);
-  }
-}
-
-// Limpa código ao abrir modal de edição (ou mantém o existente)
-function resetCodLabel(tipo) {
-  // Nada a fazer — código fica no campo hidden e só é gerado ao salvar novo registro
-}
-
-
-// ╔══════════════════════════════════════════════════════════════╗
-// ║           SISTEMA OFFLINE COM SINCRONIZAÇÃO                  ║
-// ║  Estratégia: IndexedDB como cache local + fila de sync       ║
-// ╚══════════════════════════════════════════════════════════════╝
-
-// ── Estado de conectividade (variáveis declaradas no topo do script) ──
-
-// ── IndexedDB: banco local ────────────────────────────────────
-const IDB_NAME    = 'sistema_comercial_v1';
-const IDB_VERSION = 1;
-const STORES = ['produtos','clientes','fornecedores','vendas','orcamentos',
-                'lancamentos','contas_receber','contas_pagar','sync_queue'];
-
-function abrirIDB() {
-  return new Promise((resolve, reject) => {
-    if (_dbLocal) { resolve(_dbLocal); return; }
-    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
-    req.onupgradeneeded = e => {
-      const db = e.target.result;
-      STORES.forEach(store => {
-        if (!db.objectStoreNames.contains(store)) {
-          const s = db.createObjectStore(store, { keyPath: 'id' });
-          if (store === 'sync_queue') {
-            s.createIndex('tabela', 'tabela', { unique: false });
-          }
-        }
-      });
-    };
-    req.onsuccess = e => { _dbLocal = e.target.result; resolve(_dbLocal); };
-    req.onerror   = e => reject(e.target.error);
-  });
-}
-
-async function idbGetAll(store) {
-  const db = await abrirIDB();
-  return new Promise((resolve, reject) => {
-    const tx  = db.transaction(store, 'readonly');
-    const req = tx.objectStore(store).getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror   = () => reject(req.error);
-  });
-}
-
-async function idbPut(store, item) {
-  const db = await abrirIDB();
-  return new Promise((resolve, reject) => {
-    const tx  = db.transaction(store, 'readwrite');
-    const req = tx.objectStore(store).put(item);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
-  });
-}
-
-async function idbDelete(store, key) {
-  const db = await abrirIDB();
-  return new Promise((resolve, reject) => {
-    const tx  = db.transaction(store, 'readwrite');
-    const req = tx.objectStore(store).delete(key);
-    req.onsuccess = () => resolve();
-    req.onerror   = () => reject(req.error);
-  });
-}
-
-async function idbClear(store) {
-  const db = await abrirIDB();
-  return new Promise((resolve, reject) => {
-    const tx  = db.transaction(store, 'readwrite');
-    const req = tx.objectStore(store).clear();
-    req.onsuccess = () => resolve();
-    req.onerror   = () => reject(req.error);
-  });
-}
-
-// ── Fila de sincronização ─────────────────────────────────────
-// Cada item da fila: { id, tabela, operacao, payload, createdAt }
-async function enfileirarSync(tabela, operacao, payload) {
-  const item = {
-    id        : 'sq_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
-    tabela,
-    operacao, // 'insert' | 'update' | 'delete'
-    payload,
-    createdAt : new Date().toISOString(),
-  };
-  await idbPut('sync_queue', item);
-  atualizarBadgeSync();
-}
-
-async function contarPendentes() {
-  const fila = await idbGetAll('sync_queue');
-  return fila.length;
-}
-
-async function atualizarBadgeSync() {
-  const n = await contarPendentes();
-  const el = document.getElementById('sync-pending');
-  if (el) {
-    el.textContent = n + ' pendente' + (n !== 1 ? 's' : '');
-    el.style.display = n > 0 ? '' : 'none';
-  }
-}
-
-// ── Cache local: baixa todos os dados do Supabase ─────────────
-async function cachearTudo() {
-  if (!_isOnline || !sb || !wsId()) return;
-  try {
-    const tabelas = [
-      { nome: 'produtos',       query: () => sb.from('produtos').select('*,fornecedores(nome)').eq('workspace_id', wsId()) },
-      { nome: 'clientes',       query: () => sb.from('clientes').select('*').eq('workspace_id', wsId()) },
-      { nome: 'fornecedores',   query: () => sb.from('fornecedores').select('*').eq('workspace_id', wsId()) },
-      { nome: 'vendas',         query: () => sb.from('vendas').select('*,clientes(nome),venda_itens(*)').eq('workspace_id', wsId()) },
-      { nome: 'orcamentos',     query: () => sb.from('orcamentos').select('*,clientes(nome),orcamento_itens(*)').eq('workspace_id', wsId()) },
-      { nome: 'lancamentos',    query: () => sb.from('lancamentos').select('*').eq('workspace_id', wsId()) },
-      { nome: 'contas_receber', query: () => sb.from('contas_receber').select('*,clientes(nome)').eq('workspace_id', wsId()) },
-      { nome: 'contas_pagar',   query: () => sb.from('contas_pagar').select('*,fornecedores(nome)').eq('workspace_id', wsId()) },
-    ];
-    for (const t of tabelas) {
-      const { data } = await t.query();
-      if (data) {
-        await idbClear(t.nome);
-        for (const row of data) await idbPut(t.nome, row);
-      }
-    }
-    console.log('[Offline] Cache atualizado às', new Date().toLocaleTimeString());
-  } catch(e) {
-    console.warn('[Offline] Erro ao cachear:', e.message);
-  }
-}
-
-// ── Wrapper de query: online usa Supabase, offline usa IDB ────
-async function dbQuery(tabela, filtros = {}) {
-  if (_isOnline) {
-    // Online: busca no Supabase normalmente
-    let q = sb.from(tabela).select(filtros.select || '*');
-    if (filtros.workspace) q = q.eq('workspace_id', wsId());
-    if (filtros.order)     q = q.order(filtros.order, { ascending: filtros.asc ?? true });
-    if (filtros.eq)        Object.entries(filtros.eq).forEach(([k,v]) => { q = q.eq(k,v); });
-    const { data, error } = await q;
-    if (error) throw error;
-    return data || [];
-  } else {
-    // Offline: busca no IndexedDB
-    let data = await idbGetAll(tabela);
-    if (filtros.workspace !== false) {
-      // Filtra apenas registros do workspace atual (salvo no wsId)
-      data = data.filter(r => r.workspace_id === wsId());
-    }
-    if (filtros.eq) {
-      Object.entries(filtros.eq).forEach(([k,v]) => {
-        data = data.filter(r => r[k] === v);
-      });
-    }
-    if (filtros.order) {
-      data.sort((a,b) => {
-        const va = a[filtros.order]||'', vb = b[filtros.order]||'';
-        return filtros.asc !== false ? va.localeCompare(vb) : vb.localeCompare(va);
-      });
-    }
-    return data;
-  }
-}
-
-// ── INSERT com fallback offline ───────────────────────────────
-async function dbInsert(tabela, payload) {
-  const itemComId = { ...payload, id: payload.id || ('local_' + Date.now() + '_' + Math.random().toString(36).slice(2,6)) };
-  if (_isOnline) {
-    try {
-      const { data, error } = await sb.from(tabela).insert(payload).select().single();
-      if (error) throw error;
-      await idbPut(tabela, data); // atualiza cache
-      return data;
-    } catch(e) {
-      if (e.message?.includes('fetch') || e.message?.includes('Failed')) {
-        // Caiu offline durante a operação
-        setOffline();
-        await idbPut(tabela, itemComId);
-        await enfileirarSync(tabela, 'insert', payload);
-        return itemComId;
-      }
-      throw e;
-    }
-  } else {
-    await idbPut(tabela, itemComId);
-    await enfileirarSync(tabela, 'insert', payload);
-    return itemComId;
-  }
-}
-
-// ── UPDATE com fallback offline ───────────────────────────────
-async function dbUpdate(tabela, id, payload) {
-  if (_isOnline) {
-    try {
-      const { data, error } = await sb.from(tabela).update(payload).eq('id', id).select().single();
-      if (error) throw error;
-      await idbPut(tabela, { id, ...payload, ...data });
-      return data;
-    } catch(e) {
-      if (e.message?.includes('fetch') || e.message?.includes('Failed')) {
-        setOffline();
-        const local = (await idbGetAll(tabela)).find(r => r.id === id) || {};
-        const updated = { ...local, ...payload, id };
-        await idbPut(tabela, updated);
-        await enfileirarSync(tabela, 'update', { id, ...payload });
-        return updated;
-      }
-      throw e;
-    }
-  } else {
-    const local = (await idbGetAll(tabela)).find(r => r.id === id) || {};
-    const updated = { ...local, ...payload, id };
-    await idbPut(tabela, updated);
-    await enfileirarSync(tabela, 'update', { id, ...payload });
-    return updated;
-  }
-}
-
-// ── DELETE com fallback offline ───────────────────────────────
-async function dbDeleteItem(tabela, id) {
-  if (_isOnline) {
-    try {
-      const { error } = await sb.from(tabela).delete().eq('id', id);
-      if (error) throw error;
-      await idbDelete(tabela, id);
-    } catch(e) {
-      if (e.message?.includes('fetch') || e.message?.includes('Failed')) {
-        setOffline();
-        await idbDelete(tabela, id);
-        await enfileirarSync(tabela, 'delete', { id });
-        return;
-      }
-      throw e;
-    }
-  } else {
-    await idbDelete(tabela, id);
-    await enfileirarSync(tabela, 'delete', { id });
-  }
-}
-
-// ── Sincronização automática ──────────────────────────────────
-async function tentarSincronizar() {
-  if (!_isOnline || _isSyncing || !sb || !wsId()) return;
-  const fila = await idbGetAll('sync_queue');
-  if (fila.length === 0) return;
-
-  _isSyncing = true;
-  mostrarBarraSync(true);
-  console.log(`[Sync] Iniciando sincronização de ${fila.length} operação(ões)...`);
-
-  let sucessos = 0;
-  for (const item of fila) {
-    try {
-      const { tabela, operacao, payload } = item;
-      const payloadSemLocalId = { ...payload };
-      // Se o ID é local (gerado offline), remove para o Supabase gerar um novo
-      if (payloadSemLocalId.id && String(payloadSemLocalId.id).startsWith('local_')) {
-        delete payloadSemLocalId.id;
-      }
-
-      if (operacao === 'insert') {
-        await sb.from(tabela).insert({ ...payloadSemLocalId, workspace_id: wsId() });
-      } else if (operacao === 'update') {
-        const { id, ...rest } = payload;
-        if (id && !String(id).startsWith('local_')) {
-          await sb.from(tabela).update(rest).eq('id', id);
-        }
-      } else if (operacao === 'delete') {
-        if (payload.id && !String(payload.id).startsWith('local_')) {
-          await sb.from(tabela).delete().eq('id', payload.id);
-        }
-      }
-
-      await idbDelete('sync_queue', item.id);
-      sucessos++;
-    } catch(e) {
-      console.warn(`[Sync] Erro ao sincronizar item ${item.id}:`, e.message);
-    }
-  }
-
-  console.log(`[Sync] Concluído: ${sucessos}/${fila.length} sincronizados`);
-
-  // Após sync, baixa dados atualizados do servidor
-  await cachearTudo();
-  // Recarrega a página atual
-  const paginaAtual = document.getElementById('pg-ttl')?.textContent;
-  const mapa = {
-    'Dashboard': 'dash', 'Produtos': 'prod', 'Clientes': 'cli',
-    'Fornecedores': 'forn', 'Vendas': 'vend', 'Orçamentos': 'orc',
-    'Fluxo de caixa': 'fin', 'Contas a receber': 'cr', 'Contas a pagar': 'cp',
-    'Pagamentos': 'pgto', 'Controle de estoque': 'est',
-  };
-  if (paginaAtual && mapa[paginaAtual]) nav(mapa[paginaAtual]);
-
-  _isSyncing = false;
-  mostrarBarraSync(false);
-  atualizarBadgeSync();
-
-  if (sucessos > 0) {
-    mostrarToast(`✅ ${sucessos} alteração(ões) sincronizada(s) com sucesso!`, 'success');
-  }
-}
-
-// ── UI: barras de status ──────────────────────────────────────
-function mostrarBarraOffline(show) {
-  const el = document.getElementById('offline-bar');
-  if (el) el.style.display = show ? 'flex' : 'none';
-}
-
-function mostrarBarraSync(show) {
-  const el = document.getElementById('sync-bar');
-  if (el) el.style.display = show ? 'flex' : 'none';
-}
-
-function mostrarToast(msg, tipo = 'success') {
-  const cores = {
-    success: { bg: '#f0fdf4', bdr: '#22c55e', txt: '#166534' },
-    error:   { bg: '#fef2f2', bdr: '#ef4444', txt: '#991b1b' },
-    info:    { bg: '#eff6ff', bdr: '#3b82f6', txt: '#1d4ed8' },
-  };
-  const c = cores[tipo] || cores.success;
-  const el = document.createElement('div');
-  el.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;
-    background:${c.bg};border:1px solid ${c.bdr};color:${c.txt};
-    padding:12px 18px;border-radius:10px;font-size:13px;font-weight:500;
-    box-shadow:0 4px 20px rgba(0,0,0,.12);max-width:360px;
-    animation:slideIn .3s ease;`;
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => { el.style.opacity='0'; el.style.transition='opacity .4s'; setTimeout(() => el.remove(), 400); }, 4000);
-}
-
-// ── Detectar mudanças de conectividade ────────────────────────
-function setOnline() {
-  if (_isOnline) return;
-  _isOnline = true;
-  console.log('[Offline] Voltou online');
-  mostrarBarraOffline(false);
-  document.title = 'Sistema Comercial';
-  mostrarToast('🌐 Conexão restaurada! Sincronizando...', 'info');
-  setTimeout(() => tentarSincronizar(), 1500);
-}
-
-function setOffline() {
-  if (!_isOnline) return;
-  _isOnline = false;
-  console.log('[Offline] Ficou offline');
-  mostrarBarraOffline(true);
-  atualizarBadgeSync();
-  mostrarToast('📴 Sem conexão. Trabalhando no modo offline.', 'error');
-  document.title = '📴 Offline — Sistema Comercial';
-}
-
-window.addEventListener('online',  () => setOnline());
-window.addEventListener('offline', () => setOffline());
-
-// Verifica conectividade real (não apenas o evento do browser)
-async function verificarConectividadeReal() {
-  // Usa o próprio Supabase como ping (evita CORS)
-  // Se não tem credenciais configuradas, usa apenas o estado do navegador
-  if (!sb || !isCfgOk()) {
-    const online = navigator.onLine;
-    if (online && !_isOnline) setOnline();
-    if (!online && _isOnline) setOffline();
-    return;
-  }
-  try {
-    const { error } = await sb.from('workspaces').select('id').limit(1);
-    // Se respondeu (mesmo com erro de permissão), está online
-    if (!_isOnline) setOnline();
-  } catch(e) {
-    // Erro de rede = offline
-    if (e.message?.includes('fetch') || e.message?.includes('Failed') || e.message?.includes('NetworkError')) {
-      if (_isOnline) setOffline();
-    }
-  }
-}
-
-// Verifica a cada 30 segundos
-setInterval(verificarConectividadeReal, 30000);
-
-// CSS para animação do toast
-const toastStyle = document.createElement('style');
-toastStyle.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}';
-document.head.appendChild(toastStyle);
-
-boot();
-
-// ── ESTADO ───────────────────────────────────────────────────
-let SESSION = null, WS = null, ME = null;
-let _produtos = [], _clientes = [], _fornecedores = [];
-let iV = [], mV = 'venda', adjId = null, tipoC = 'cr';
-let editId = {};
-
-// ── Estado offline (declarado aqui para ficar disponível globalmente) ──
-let _isOnline   = navigator.onLine;
-let _isSyncing  = false;
-let _dbLocal    = null;
-const _contadores = { prod: 0, cli: 0, forn: 0 };
-
-const R = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-const hj = () => new Date().toISOString().split('T')[0];
-const mesAtual = () => new Date().toISOString().slice(0,7);
-const wsId = () => WS?.id || null;
-
-// ── BOOT ─────────────────────────────────────────────────────
+// ── AUTH ─────────────────────────────────────────────────────
 async function boot() {
-  // Registrar Service Worker apenas no domínio de produção (não no Claude preview)
   if ('serviceWorker' in navigator) {
-    const hostname = window.location.hostname;
-    const isProd = !hostname.includes('claudeusercontent.com')
-                && !hostname.includes('localhost')
-                && hostname !== ''
-                && hostname !== '127.0.0.1';
-    if (isProd) {
-      navigator.serviceWorker.register('./service-worker.js')
-        .then(reg => {
-          console.log('[SW] Registrado:', reg.scope);
-          reg.addEventListener('updatefound', () => {
-            const nw = reg.installing;
-            nw.addEventListener('statechange', () => {
-              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-                mostrarToast('🔄 Nova versão disponível! Recarregue para atualizar.', 'info');
-              }
-            });
-          });
-        })
-        .catch(e => console.warn('[SW] Falha ao registrar:', e));
-    } else {
-      console.log('[SW] Ignorado — ambiente de preview/desenvolvimento');
+    const h = window.location.hostname;
+    if (!h.includes('claudeusercontent.com') && h !== 'localhost' && h !== '127.0.0.1') {
+      navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     }
   }
-
-  if (!isCfgOk()) {
-    showSetup();
-    return;
-  }
+  if (!isCfgOk()) { showSetup(); return; }
   if (!sb) initSb();
   try {
     const { data } = await sb.auth.getSession();
     SESSION = data.session;
-    if (SESSION) {
-      await loadUserContext();
-      showApp();
-    } else {
-      showAuth();
-    }
+    if (SESSION) { await loadUserContext(); showApp(); }
+    else showAuth();
   } catch(e) {
-    // Se falhar (credenciais erradas), vai para setup
-    if (e.message && (e.message.includes('fetch') || e.message.includes('Failed'))) {
-      localStorage.removeItem(CFG_URL_KEY);
-      localStorage.removeItem(CFG_KEY_KEY);
-      showSetup();
-    } else {
-      showAuth();
-    }
+    if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
+      localStorage.removeItem(CFG_URL_KEY); localStorage.removeItem(CFG_KEY_KEY); showSetup();
+    } else showAuth();
   }
 }
 
 async function loadUserContext() {
-  const { data: user, error } = await sb
-    .from('usuarios')
-    .select('*, workspaces(*)')
-    .eq('auth_id', SESSION.user.id)
-    .single();
+  const { data, error } = await sb.from('usuarios').select('*, workspaces(*)').eq('auth_id', SESSION.user.id).single();
   if (error) throw error;
-  ME = user; WS = user.workspaces;
+  ME = data; WS = data.workspaces;
 }
 
 function showAuth() {
   document.getElementById('loading-screen').classList.add('hide');
   document.getElementById('auth-screen').classList.add('show');
+  const el = document.getElementById('cfg-status');
+  if (el) el.textContent = 'Configurado';
 }
+
 function showApp() {
   document.getElementById('loading-screen').classList.add('hide');
   document.getElementById('auth-screen').classList.remove('show');
   document.getElementById('app').classList.add('show');
-  document.getElementById('ws-nm').textContent = WS.nome;
+  document.getElementById('ws-nm').textContent  = WS.nome;
   document.getElementById('ws-sub').textContent = ME.role;
-  document.getElementById('s-nm').textContent = ME.nome;
-  document.getElementById('s-av').textContent = ME.nome[0].toUpperCase();
+  document.getElementById('s-nm').textContent   = ME.nome;
+  document.getElementById('s-av').textContent   = ME.nome[0].toUpperCase();
   document.getElementById('s-role').textContent = ME.role;
   const pill = document.getElementById('ws-pill');
-  pill.textContent = WS.plano.charAt(0).toUpperCase() + WS.plano.slice(1);
-  pill.className = 'plan-pill pill-' + WS.plano;
-  // Atualiza estado de conectividade
+  pill.textContent  = WS.plano.charAt(0).toUpperCase() + WS.plano.slice(1);
+  pill.className    = 'plan-pill pill-' + WS.plano;
   if (!navigator.onLine) setOffline();
   else mostrarBarraOffline(false);
-  // Navega para o dashboard e só DEPOIS faz o cache em background
   nav('dash');
-  // Cache assíncrono — não bloqueia a UI
-  setTimeout(() => {
-    cachearTudo().then(() => atualizarBadgeSync()).catch(()=>{});
-  }, 500);
+  setTimeout(() => cachearTudo().then(()=>atualizarBadgeSync()).catch(()=>{}), 800);
 }
 
-// ── AUTH ─────────────────────────────────────────────────────
 function authTab(t) {
   document.querySelectorAll('.auth-tab').forEach(x => x.classList.remove('active'));
   document.querySelectorAll('.auth-form').forEach(x => x.classList.remove('show'));
@@ -1234,202 +1020,113 @@ async function doLogin() {
   const btn = document.getElementById('btn-login');
   const err = document.getElementById('err-login');
   const email = document.getElementById('l-email').value.trim();
-  const pass = document.getElementById('l-pass').value;
-  err.classList.remove('show'); err.textContent = '';
-  if (!email || !pass) { err.textContent = 'Preencha e-mail e senha.'; err.classList.add('show'); return; }
-  btn.disabled = true; btn.innerHTML = '<span class="spin-inline"></span> Entrando...';
+  const pass  = document.getElementById('l-pass').value;
+  err.classList.remove('show');
+  if (!email||!pass) { err.textContent='Preencha e-mail e senha.'; err.classList.add('show'); return; }
+  btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Entrando...';
   try {
     const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
     if (error) throw error;
     SESSION = data.session;
-    await loadUserContext();
-    showApp();
+    await loadUserContext(); showApp();
   } catch(e) {
-    if (e.message && (e.message.includes('fetch') || e.message.includes('Failed'))) {
-      err.textContent = 'Erro de conexão com o Supabase. Verifique suas credenciais em Configurações.';
-    } else if (e.message && e.message.includes('Invalid login')) {
-      err.textContent = 'E-mail ou senha incorretos.';
-    } else {
-      err.textContent = e.message || 'Erro ao entrar. Tente novamente.';
-    }
+    err.textContent = e.message?.includes('fetch') ? 'Erro de conexão.' : 'E-mail ou senha incorretos.';
     err.classList.add('show');
-    btn.disabled = false; btn.innerHTML = 'Entrar';
+    btn.disabled=false; btn.innerHTML='Entrar';
   }
 }
 
 async function doRegister() {
-  const btn = document.getElementById('btn-register');
-  const err = document.getElementById('err-register');
-  const nome = document.getElementById('r-nome').value.trim();
+  const btn     = document.getElementById('btn-register');
+  const err     = document.getElementById('err-register');
+  const nome    = document.getElementById('r-nome').value.trim();
   const empresa = document.getElementById('r-empresa').value.trim();
-  const email = document.getElementById('r-email').value.trim();
-  const pass = document.getElementById('r-pass').value;
+  const email   = document.getElementById('r-email').value.trim();
+  const pass    = document.getElementById('r-pass').value;
   err.classList.remove('show');
-  if (!nome || !empresa || !email || !pass) {
-    err.textContent = 'Preencha todos os campos.'; err.classList.add('show'); return;
-  }
-  if (pass.length < 6) {
-    err.textContent = 'Senha deve ter ao menos 6 caracteres.'; err.classList.add('show'); return;
-  }
-  btn.disabled = true; btn.innerHTML = '<span class="spin-inline"></span> Criando conta...';
+  if (!nome||!empresa||!email||!pass) { err.textContent='Preencha todos os campos.'; err.classList.add('show'); return; }
+  if (pass.length<6) { err.textContent='Senha mínimo 6 caracteres.'; err.classList.add('show'); return; }
+  btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Criando conta...';
   try {
-    // 1. Cria o usuário no Supabase Auth
     const { data: authData, error: authErr } = await sb.auth.signUp({ email, password: pass });
     if (authErr) throw authErr;
-
     const userId = authData.user?.id;
-    if (!userId) throw new Error('Não foi possível obter o ID do usuário. Verifique o e-mail e tente novamente.');
-
-    // 2. Chama a função RPC SECURITY DEFINER que cria workspace + usuario
-    //    Retorna JSON: { workspace_id: "..." }
+    if (!userId) throw new Error('Não foi possível obter ID do usuário.');
     const { data: rpcData, error: rpcErr } = await sb.rpc('criar_workspace_e_usuario', {
-      p_nome_empresa : empresa,
-      p_plano        : 'free',
-      p_auth_id      : userId,
-      p_nome_usuario : nome,
-      p_email        : email,
+      p_nome_empresa: empresa, p_plano:'free', p_auth_id:userId, p_nome_usuario:nome, p_email:email
     });
     if (rpcErr) throw rpcErr;
-    if (!rpcData || !rpcData.workspace_id) throw new Error('Workspace não criado. Tente novamente.');
-
-    // 3. Se tem sessão ativa (confirmação de e-mail desativada), entra direto
     SESSION = authData.session;
-    if (SESSION) {
-      await loadUserContext();
-      showApp();
-    } else {
-      // Confirmação de e-mail ativa — orientar o usuário
-      err.style.background = 'var(--green-bg)';
-      err.style.color = 'var(--green-txt)';
-      err.textContent = '✅ Conta criada! Verifique seu e-mail e clique no link de confirmação para entrar.';
-      err.classList.add('show');
-      btn.disabled = false;
-      btn.innerHTML = 'Criar conta grátis';
+    if (SESSION) { await loadUserContext(); showApp(); }
+    else {
+      err.style.background='var(--green-bg)'; err.style.color='var(--green-txt)';
+      err.textContent='✅ Conta criada! Verifique seu e-mail para confirmar.';
+      err.classList.add('show'); btn.disabled=false; btn.innerHTML='Criar conta grátis';
     }
   } catch(e) {
-    console.error('Erro no registro:', e);
-    if (e.message && (e.message.includes('fetch') || e.message.includes('Failed'))) {
-      err.textContent = 'Erro de conexão com o Supabase. Verifique as credenciais em "Reconfigurar".';
-    } else if (e.message && e.message.includes('already registered')) {
-      err.textContent = 'Este e-mail já está cadastrado. Tente fazer login.';
-    } else if (e.message && e.message.includes('row-level security')) {
-      err.textContent = '❌ Erro RLS: Execute o script 03_fix_stack_depth.sql no Supabase e tente novamente.';
-    } else if (e.message && e.message.includes('stack depth')) {
-      err.textContent = '❌ Erro de recursão no banco. Execute o script 03_fix_stack_depth.sql no Supabase e tente novamente.';
-    } else if (e.message && e.message.includes('Password should be')) {
-      err.textContent = 'Senha fraca. Use ao menos 6 caracteres com letras e números.';
-    } else {
-      err.textContent = e.message || 'Erro ao criar conta. Tente novamente.';
-    }
-    err.classList.add('show');
-    btn.disabled = false;
-    btn.innerHTML = 'Criar conta grátis';
+    err.textContent = e.message?.includes('row-level') ? 'Execute o script 03_fix_stack_depth.sql no Supabase.' : (e.message||'Erro ao criar conta.');
+    err.classList.add('show'); btn.disabled=false; btn.innerHTML='Criar conta grátis';
   }
 }
 
 async function doLogout() {
   await sb.auth.signOut();
-  SESSION = null; WS = null; ME = null;
+  SESSION=null; WS=null; ME=null;
   document.getElementById('app').classList.remove('show');
   showAuth();
 }
 
-function resetConfig() {
-  localStorage.removeItem(CFG_URL_KEY);
-  localStorage.removeItem(CFG_KEY_KEY);
-  document.getElementById('auth-screen').classList.remove('show');
-  showSetup();
-}
-
-// ── NAV ──────────────────────────────────────────────────────
+// ── NAVEGAÇÃO ────────────────────────────────────────────────
 function nav(p) {
-  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.ni').forEach(x => x.classList.remove('active'));
-  document.getElementById('page-' + p)?.classList.add('active');
-  document.getElementById('ni-' + p)?.classList.add('active');
-  const T = { dash:'Dashboard', prod:'Produtos', cli:'Clientes', forn:'Fornecedores', vend:'Vendas', orc:'Orçamentos', fin:'Fluxo de caixa', cr:'Contas a receber', cp:'Contas a pagar', pgto:'Pagamentos', est:'Controle de estoque', saas:'Plano & workspace' };
-  document.getElementById('pg-ttl').textContent = T[p] || p;
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.ni').forEach(x=>x.classList.remove('active'));
+  document.getElementById('page-'+p)?.classList.add('active');
+  document.getElementById('ni-'+p)?.classList.add('active');
+  const T = {dash:'Dashboard',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace'};
+  document.getElementById('pg-ttl').textContent = T[p]||p;
   const A = {
-    prod: `<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`,
-    cli:  `<button class="btn bp sm" onclick="openCli()"><i class="ti ti-plus"></i>Novo cliente</button>`,
-    forn: `<button class="btn bp sm" onclick="openForn()"><i class="ti ti-plus"></i>Novo fornecedor</button>`,
-    vend: `<button class="btn bp sm" onclick="openVnd('venda')"><i class="ti ti-plus"></i>Nova venda</button>`,
-    orc:  `<button class="btn bp sm" onclick="openVnd('orcamento')"><i class="ti ti-plus"></i>Novo orçamento</button>`,
-    fin:  `<button class="btn bp sm" onclick="openLan()"><i class="ti ti-plus"></i>Novo lançamento</button>`,
-    cr:   `<button class="btn bp sm" onclick="openConta('cr')"><i class="ti ti-plus"></i>Nova conta</button>`,
-    cp:   `<button class="btn bp sm" onclick="openConta('cp')"><i class="ti ti-plus"></i>Nova conta</button>`,
+    prod:`<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`,
+    cli: `<button class="btn bp sm" onclick="openCli()"><i class="ti ti-plus"></i>Novo cliente</button>`,
+    forn:`<button class="btn bp sm" onclick="openForn()"><i class="ti ti-plus"></i>Novo fornecedor</button>`,
+    vend:`<button class="btn bp sm" onclick="openVnd('venda')"><i class="ti ti-plus"></i>Nova venda</button>`,
+    orc: `<button class="btn bp sm" onclick="openVnd('orcamento')"><i class="ti ti-plus"></i>Novo orçamento</button>`,
+    fin: `<button class="btn bp sm" onclick="openLan()"><i class="ti ti-plus"></i>Novo lançamento</button>`,
+    cr:  `<button class="btn bp sm" onclick="openConta('cr')"><i class="ti ti-plus"></i>Nova conta</button>`,
+    cp:  `<button class="btn bp sm" onclick="openConta('cp')"><i class="ti ti-plus"></i>Nova conta</button>`,
   };
-  document.getElementById('pg-act').innerHTML = A[p] || '';
-  const pages = { dash: rDash, prod: rProd, cli: rCli, forn: rForn, vend: rVend, orc: rOrc, fin: rFin, cr: rCR, cp: rCP, pgto: rPgto, est: rEst, saas: rSaas };
-  if (pages[p]) pages[p]().catch(e => console.error('Erro ao renderizar', p, e));
+  document.getElementById('pg-act').innerHTML = A[p]||'';
+  const pages = {dash:rDash,prod:rProd,cli:rCli,forn:rForn,vend:rVend,orc:rOrc,fin:rFin,cr:rCR,cp:rCP,pgto:rPgto,est:rEst,saas:rSaas};
+  if (pages[p]) pages[p]().catch(e=>console.error('[nav]',p,e));
 }
 
-function abrirM(id) { document.getElementById('mw-' + id).classList.add('open'); }
-function fecharM(id) { document.getElementById('mw-' + id).classList.remove('open'); }
-
-function alrt(id, msg, t) {
-  const el = document.getElementById('a-' + id); if (!el) return;
-  const ic = t === 's' ? 'ti-circle-check' : t === 'w' ? 'ti-alert-triangle' : 'ti-alert-circle';
-  const cl = t === 's' ? 'as' : t === 'w' ? 'aw' : 'ad';
-  el.innerHTML = `<div class="alrt ${cl}"><i class="ti ${ic}"></i>${msg}</div>`;
-  if (t === 's') setTimeout(() => { el.innerHTML = ''; }, 3000);
-}
-
-function setLoading(btnId, on, txt = 'Salvar') {
-  const btn = document.getElementById(btnId);
-  if (!btn) return;
-  btn.disabled = on;
-  btn.innerHTML = on ? `<span class="spin-inline"></span> Salvando...` : `<i class="ti ti-device-floppy"></i>${txt}`;
-}
-
-async function updBadges() {
-  try {
-    const wid = wsId();
-    if (!wid) return;
-    let crArr=[], cpArr=[], prodArr=[];
-    if (_isOnline) {
-      const [r1,r2,r3] = await Promise.all([
-        sb.from('contas_receber').select('id,status').eq('workspace_id',wid),
-        sb.from('contas_pagar').select('id,status').eq('workspace_id',wid),
-        sb.from('produtos').select('id,estoque,estoque_min').eq('workspace_id',wid),
-      ]);
-      crArr=r1.data||[]; cpArr=r2.data||[]; prodArr=r3.data||[];
-    } else {
-      [crArr,cpArr,prodArr] = await Promise.all([
-        idbGetAll('contas_receber').then(d=>d.filter(r=>r.workspace_id===wid)),
-        idbGetAll('contas_pagar').then(d=>d.filter(r=>r.workspace_id===wid)),
-        idbGetAll('produtos').then(d=>d.filter(r=>r.workspace_id===wid)),
-      ]);
-    }
-    const vr = crArr.filter(c=>c.status==='aberto').length;
-    const vp = cpArr.filter(c=>c.status==='aberto').length;
-    const bx = prodArr.filter(p=>Number(p.estoque||0)<=Number(p.estoque_min||5)).length;
-    const bcr = document.getElementById('b-cr'); if(bcr){bcr.textContent=vr;bcr.style.display=vr?'':'none';}
-    const bcp = document.getElementById('b-cp'); if(bcp){bcp.textContent=vp;bcp.style.display=vp?'':'none';}
-    const best= document.getElementById('b-est'); if(best)best.style.display=bx?'':'none';
-  } catch(e) {}
+function updBadges() {
+  if (!_isOnline||!sb||!wsId()) return;
+  Promise.allSettled([
+    sb.from('contas_receber').select('id,status').eq('workspace_id',wsId()),
+    sb.from('contas_pagar').select('id,status').eq('workspace_id',wsId()),
+    sb.from('produtos').select('id,estoque,estoque_min').eq('workspace_id',wsId()),
+  ]).then(([r1,r2,r3]) => {
+    const vr=(r1.value?.data||[]).filter(c=>c.status==='aberto').length;
+    const vp=(r2.value?.data||[]).filter(c=>c.status==='aberto').length;
+    const bx=(r3.value?.data||[]).filter(p=>Number(p.estoque||0)<=Number(p.estoque_min||5)).length;
+    const bcr=document.getElementById('b-cr'); if(bcr){bcr.textContent=vr;bcr.style.display=vr?'':'none';}
+    const bcp=document.getElementById('b-cp'); if(bcp){bcp.textContent=vp;bcp.style.display=vp?'':'none';}
+    const be =document.getElementById('b-est'); if(be)be.style.display=bx?'':'none';
+  });
 }
 
 // ── DASHBOARD ────────────────────────────────────────────────
 async function rDash() {
   const wid = wsId();
-  console.log('[rDash] wid=', wid, '| sb=', !!sb, '| _isOnline=', _isOnline);
-  const elVlist  = document.getElementById('d-vlist');
-  const elAlrts  = document.getElementById('d-alrts');
-  const elFin    = document.getElementById('d-fin');
-
-  if (!wid) {
-    if (elVlist) elVlist.innerHTML = '<div class="emp">Aguardando sessão...</div>';
-    return;
-  }
-  if (elVlist) elVlist.innerHTML = '<div class="emp" style="color:var(--txt2)">Carregando...</div>';
-
+  const elV = document.getElementById('d-vlist');
+  const elA = document.getElementById('d-alrts');
+  const elF = document.getElementById('d-fin');
+  if (!wid) { if(elV) elV.innerHTML='<div class="emp">Aguardando sessão...</div>'; return; }
+  if (elV) elV.innerHTML='<div class="emp">Carregando...</div>';
   try {
-    const hjS = hj(), mS = mesAtual();
-    let vendasArr=[], lanArr=[], crArr=[], cpArr=[], prodArr=[];
-
+    const hjS=hj(), mS=mes();
+    let vArr=[],lArr=[],crArr=[],cpArr=[],pArr=[];
     if (_isOnline) {
-      console.log('[rDash] Buscando dados do Supabase...');
       const [r1,r2,r3,r4,r5] = await Promise.allSettled([
         sb.from('vendas').select('id,data,total,clientes(nome)').eq('workspace_id',wid),
         sb.from('lancamentos').select('tipo,valor,status').eq('workspace_id',wid),
@@ -1437,14 +1134,10 @@ async function rDash() {
         sb.from('contas_pagar').select('status,vencimento').eq('workspace_id',wid),
         sb.from('produtos').select('estoque,estoque_min').eq('workspace_id',wid),
       ]);
-      vendasArr = r1.value?.data||[]; lanArr = r2.value?.data||[];
-      crArr     = r3.value?.data||[]; cpArr  = r4.value?.data||[];
-      prodArr   = r5.value?.data||[];
-      console.log('[rDash] Resultados:', {vendas:vendasArr.length, lan:lanArr.length, cr:crArr.length, cp:cpArr.length, prod:prodArr.length});
-      // Log de erros individuais
-      [r1,r2,r3,r4,r5].forEach((r,i)=>{ if(r.status==='rejected') console.error('[rDash] Query',i,'falhou:',r.reason); });
+      vArr=r1.value?.data||[]; lArr=r2.value?.data||[];
+      crArr=r3.value?.data||[]; cpArr=r4.value?.data||[]; pArr=r5.value?.data||[];
     } else {
-      [vendasArr,lanArr,crArr,cpArr,prodArr] = await Promise.all([
+      [vArr,lArr,crArr,cpArr,pArr] = await Promise.all([
         idbGetAll('vendas').then(d=>d.filter(r=>r.workspace_id===wid)),
         idbGetAll('lancamentos').then(d=>d.filter(r=>r.workspace_id===wid)),
         idbGetAll('contas_receber').then(d=>d.filter(r=>r.workspace_id===wid)),
@@ -1452,219 +1145,197 @@ async function rDash() {
         idbGetAll('produtos').then(d=>d.filter(r=>r.workspace_id===wid)),
       ]);
     }
-
-    // Cálculos
-    const vm  = vendasArr.filter(x=>(x.data||'').startsWith(mS));
-    const rec = lanArr.filter(l=>l.tipo==='receita'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
-    const des = lanArr.filter(l=>l.tipo==='despesa' &&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
-    const sal = rec - des;
+    const vm  = vArr.filter(x=>(x.data||'').startsWith(mS));
+    const rec = lArr.filter(l=>l.tipo==='receita'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
+    const des = lArr.filter(l=>l.tipo==='despesa'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
+    const sal = rec-des;
     const crV = crArr.filter(c=>c.status==='aberto'&&c.vencimento<hjS).length;
     const cpV = cpArr.filter(c=>c.status==='aberto'&&c.vencimento<hjS).length;
-    const bx  = prodArr.filter(p=>Number(p.estoque||0)<=Number(p.estoque_min||5)).length;
-    const zer = prodArr.filter(p=>Number(p.estoque||0)<=0).length;
-
-    // Cards
-    document.getElementById('d-vmes').textContent   = vm.length;
-    document.getElementById('d-vval').textContent   = R(vm.reduce((s,x)=>s+Number(x.total||0),0))+' no mês';
-    document.getElementById('d-sal').textContent    = R(sal);
-    document.getElementById('d-sal-d').textContent  = sal>=0?'↑ Positivo':'↓ Negativo';
-    document.getElementById('d-sal-d').className    = 'sd '+(sal>=0?'up':'dn');
-    document.getElementById('d-venc').textContent   = crV+cpV;
-    document.getElementById('d-venc-d').textContent = `${crV} receber · ${cpV} pagar`;
-    document.getElementById('d-est').textContent    = bx;
-
-    // Últimas vendas
-    const uv = [...vendasArr].sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||'')).slice(0,5);
-    elVlist.innerHTML = uv.length
+    const bx  = pArr.filter(p=>Number(p.estoque||0)<=Number(p.estoque_min||5)).length;
+    const zer = pArr.filter(p=>Number(p.estoque||0)<=0).length;
+    document.getElementById('d-vmes').textContent  = vm.length;
+    document.getElementById('d-vval').textContent  = R(vm.reduce((s,x)=>s+Number(x.total||0),0))+' no mês';
+    document.getElementById('d-sal').textContent   = R(sal);
+    document.getElementById('d-sal-d').textContent = sal>=0?'↑ Positivo':'↓ Negativo';
+    document.getElementById('d-sal-d').className   = 'sd '+(sal>=0?'up':'dn');
+    document.getElementById('d-venc').textContent  = crV+cpV;
+    document.getElementById('d-venc-d').textContent= `${crV} receber · ${cpV} pagar`;
+    document.getElementById('d-est').textContent   = bx;
+    const uv = [...vArr].sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||'')).slice(0,5);
+    if (elV) elV.innerHTML = uv.length
       ? '<table><thead><tr><th style="width:60px">#</th><th>Cliente</th><th style="width:95px">Total</th></tr></thead><tbody>'
-        + uv.map(x=>`<tr><td><small style="color:var(--txt2)">${String(x.id||'').slice(-6)}</small></td><td>${x.clientes?.nome||'—'}</td><td>${R(x.total)}</td></tr>`).join('')
-        + '</tbody></table>'
-      : '<div class="emp">Nenhuma venda registrada.</div>';
-
-    // Alertas
-    const als = [];
+        +uv.map(x=>`<tr><td><small style="color:var(--txt2)">${String(x.id||'').slice(-6)}</small></td><td>${x.clientes?.nome||'—'}</td><td>${R(x.total)}</td></tr>`).join('')+'</tbody></table>'
+      : '<div class="emp">Nenhuma venda ainda.</div>';
+    const als=[];
     if (crV) als.push({m:`${crV} conta(s) a receber vencida(s)`,t:'d',i:'ti-alert-circle'});
     if (cpV) als.push({m:`${cpV} conta(s) a pagar vencida(s)`,t:'d',i:'ti-alert-circle'});
     if (bx)  als.push({m:`${bx} produto(s) com estoque baixo`,t:'w',i:'ti-alert-triangle'});
     if (zer) als.push({m:`${zer} produto(s) sem estoque`,t:'d',i:'ti-box'});
     if (!als.length) als.push({m:'Tudo em ordem — nenhum alerta.',t:'s',i:'ti-circle-check'});
-    if (elAlrts) elAlrts.innerHTML = als.map(a=>`<div class="alrt a${a.t}" style="margin-bottom:6px"><i class="ti ${a.i}"></i>${a.m}</div>`).join('');
-
-    // Resumo financeiro
-    if (elFin) elFin.innerHTML = `
+    if (elA) elA.innerHTML = als.map(a=>`<div class="alrt a${a.t}" style="margin-bottom:6px"><i class="ti ${a.i}"></i>${a.m}</div>`).join('');
+    if (elF) elF.innerHTML = `
       <div class="sc"><div class="sl"><i class="ti ti-arrow-down-circle"></i>Receitas</div><div class="sv" style="color:var(--green-txt)">${R(rec)}</div></div>
       <div class="sc"><div class="sl"><i class="ti ti-arrow-up-circle"></i>Despesas</div><div class="sv" style="color:var(--red-txt)">${R(des)}</div></div>
       <div class="sc"><div class="sl"><i class="ti ti-scale"></i>Saldo</div><div class="sv" style="color:var(--${sal>=0?'blue':'red'}-txt)">${R(sal)}</div></div>`;
-
     updBadges();
-
   } catch(e) {
-    console.error('[Dashboard] Erro completo:', e);
-    console.error('[Dashboard] Stack:', e.stack);
-    if (elVlist) elVlist.innerHTML = `<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro: ${e.message}</div>`;
-    if (elAlrts) elAlrts.innerHTML = `<div class="alrt aw"><i class="ti ti-alert-triangle"></i>Pressione F12 → Console para ver o erro completo.</div>`;
+    console.error('[rDash]', e);
+    if (elV) elV.innerHTML=`<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro: ${e.message}</div>`;
   }
 }
 
-
+// ── PRODUTOS ─────────────────────────────────────────────────
 async function rProd(f) {
-  if (!wsId()) return;
-  document.getElementById('act-prod').innerHTML = `<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`;
+  document.getElementById('act-prod').innerHTML=`<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`;
   const tb = document.getElementById('tb-prod');
   try {
     let data;
     if (_isOnline) {
-      const res = await sb.from('produtos').select('*,fornecedores(nome)').eq('workspace_id', wsId()).order('nome');
+      const res = await sb.from('produtos').select('*,fornecedores(nome)').eq('workspace_id',wsId()).order('nome');
       if (res.error) throw res.error;
-      data = res.data || [];
-      // Atualiza cache local
-      await idbClear('produtos');
-      for (const r of data) await idbPut('produtos', r);
+      data = res.data||[];
+      await idbClear('produtos'); for (const r of data) await idbPut('produtos',r);
     } else {
-      data = await idbGetAll('produtos');
-      data = data.filter(r => r.workspace_id === wsId()).sort((a,b) => (a.nome||'').localeCompare(b.nome||''));
+      data = (await idbGetAll('produtos')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     }
-    _produtos = data || [];
-    const l = f ? _produtos.filter(p=>(p.nome+p.codigo+p.categoria).toLowerCase().includes(f.toLowerCase())) : _produtos;
+    _produtos = data;
+    const l = f ? data.filter(p=>(p.nome+p.codigo+p.categoria).toLowerCase().includes(f.toLowerCase())) : data;
     if (!l.length) { tb.innerHTML='<tr><td colspan="7" class="emp">Nenhum produto cadastrado.</td></tr>'; return; }
     tb.innerHTML = l.map(p => {
-      const ec = p.estoque<=0?'bd':p.estoque<=p.estoque_min?'bw':'bs';
-      return `<tr><td style="font-family:monospace;font-weight:600">${p.codigo||'—'}</td><td>${p.nome}${p.marca?`<small style="display:block;color:var(--txt2)">${p.marca}</small>`:''}</td><td>${p.categoria||'—'}</td><td>${R(p.preco)}</td><td><span class="badge ${ec}">${p.estoque} ${p.unidade}</span></td><td>${p.fornecedores?.nome||'—'}</td><td><div class="tda"><button class="btn sm" onclick="openProd('${p.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluir('produtos','${p.id}','prod')"><i class="ti ti-trash"></i></button></div></td></tr>`;
+      const ec = p.estoque<=0?'bd':p.estoque<=(p.estoque_min||5)?'bw':'bs';
+      const fn = p.fornecedores?.nome || '—';
+      return `<tr>
+        <td style="font-family:monospace;font-weight:600">${p.codigo||'—'}</td>
+        <td>${p.nome}${p.marca?`<small style="display:block;color:var(--txt2)">${p.marca}</small>`:''}</td>
+        <td>${p.categoria||'—'}</td><td>${R(p.preco)}</td>
+        <td><span class="badge ${ec}">${p.estoque} ${p.unidade||'un'}</span></td>
+        <td>${fn}</td>
+        <td><div class="tda">
+          <button class="btn sm" onclick="openProd('${p.id}')"><i class="ti ti-edit"></i></button>
+          <button class="btn sm bda" onclick="excluir('produtos','${p.id}','prod')"><i class="ti ti-trash"></i></button>
+        </div></td></tr>`;
     }).join('');
-  } catch(e) { tb.innerHTML=`<tr><td colspan="7" class="emp">Erro ao carregar: ${e.message}</td></tr>`; }
+  } catch(e) {
+    tb.innerHTML=`<tr><td colspan="7" class="emp">Erro ao carregar: ${e.message}</td></tr>`;
+  }
 }
 function filtrarProd() { rProd(document.getElementById('s-prod').value); }
 
-async function openProd(id = null) {
+async function openProd(id=null) {
   editId.prod = id;
-  document.getElementById('mp-t').textContent = id ? 'Editar produto' : 'Novo produto';
+  document.getElementById('mp-t').textContent = id?'Editar produto':'Novo produto';
   document.getElementById('a-mprod').innerHTML = '';
-
-  // Limpa todos os campos
-  ['p-cod','p-cat','p-nm','p-marca','p-barras','p-ob'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.value = '';
-  });
-  ['p-pr','p-cu'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  document.getElementById('p-un').value = 'un';
-  document.getElementById('p-est').value = 0;
-  document.getElementById('p-emin').value = 5;
-  document.getElementById('p-emax').value = 100;
-  resetCodLabel('prod');
-
-  // Carrega fornecedores — busca do banco se lista vazia
-  if (_fornecedores.length === 0) {
+  // Limpar campos
+  ['p-cat','p-nm','p-marca','p-barras','p-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
+  ['p-pr','p-cu'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
+  document.getElementById('p-un').value='un';
+  document.getElementById('p-est').value=0;
+  document.getElementById('p-emin').value=5;
+  document.getElementById('p-emax').value=100;
+  // Carregar fornecedores
+  if (_fornecedores.length===0) {
     try {
-      const { data } = await sb.from('fornecedores').select('id,nome').eq('workspace_id', wsId()).order('nome');
-      _fornecedores = data || [];
-    } catch(e) {}
+      const {data} = await sb.from('fornecedores').select('id,nome').eq('workspace_id',wsId()).order('nome');
+      _fornecedores = data||[];
+    } catch(e) { _fornecedores = await idbGetAll('fornecedores').then(d=>d.filter(r=>r.workspace_id===wsId())); }
   }
   const sf = document.getElementById('p-for');
   sf.innerHTML = '<option value="">— Sem fornecedor —</option>';
-  _fornecedores.forEach(f => { sf.innerHTML += `<option value="${f.id}">${f.nome}</option>`; });
-
-  // Se editando, preenche os campos com os dados do produto
+  _fornecedores.forEach(f=>{ sf.innerHTML+=`<option value="${f.id}">${f.nome}</option>`; });
   if (id) {
-    const p = _produtos.find(x => x.id === id);
+    const p = _produtos.find(x=>x.id===id);
     if (p) {
-      document.getElementById('p-nm').value    = p.nome||'';
-      document.getElementById('p-cod').value   = p.codigo||'';
-      document.getElementById('p-cat').value   = p.categoria||'';
-      document.getElementById('p-marca').value = p.marca||'';
-      document.getElementById('p-barras').value= p.codigo_barras||'';
-      document.getElementById('p-un').value    = p.unidade||'un';
-      document.getElementById('p-pr').value    = p.preco||'';
-      document.getElementById('p-cu').value    = p.custo||'';
-      document.getElementById('p-est').value   = p.estoque||0;
-      document.getElementById('p-emin').value  = p.estoque_min||5;
-      document.getElementById('p-emax').value  = p.estoque_max||100;
-      document.getElementById('p-for').value   = p.fornecedor_id||'';
-      document.getElementById('p-ob').value    = p.observacoes||'';
+      document.getElementById('p-nm').value   = p.nome||'';
+      document.getElementById('p-cat').value  = p.categoria||'';
+      document.getElementById('p-marca').value= p.marca||'';
+      document.getElementById('p-barras').value=p.codigo_barras||'';
+      document.getElementById('p-un').value   = p.unidade||'un';
+      document.getElementById('p-pr').value   = p.preco||'';
+      document.getElementById('p-cu').value   = p.custo||'';
+      document.getElementById('p-est').value  = p.estoque||0;
+      document.getElementById('p-emin').value = p.estoque_min||5;
+      document.getElementById('p-emax').value = p.estoque_max||100;
+      document.getElementById('p-for').value  = p.fornecedor_id||'';
+      document.getElementById('p-ob').value   = p.observacoes||'';
     }
   }
-
   abrirM('prod');
 }
 
 async function salvarProd() {
   const nm = document.getElementById('p-nm').value.trim();
   if (!nm) { alrt('mprod','Informe o nome do produto.','d'); return; }
-  setLoading('btn-prod', true);
+  setLoading('btn-prod',true);
   try {
-    // Gera código automático se for novo registro
-    if (!editId.prod) {
-      await sincronizarContador('prod');
-      aplicarProximoCodigo('prod');
-    }
+    // Gerar código automático para novo produto
+    const codigo = editId.prod
+      ? (_produtos.find(x=>x.id===editId.prod)?.codigo || await proximoCodigo('prod'))
+      : await proximoCodigo('prod');
     const payload = {
       nome: nm,
-      codigo: document.getElementById('p-cod').value.trim() || padCod(Date.now()).slice(-6),
-      categoria: document.getElementById('p-cat').value.trim(),
-      marca: document.getElementById('p-marca').value.trim(),
+      codigo,
+      categoria:     document.getElementById('p-cat').value.trim(),
+      marca:         document.getElementById('p-marca').value.trim(),
       codigo_barras: document.getElementById('p-barras').value.trim(),
-      unidade: document.getElementById('p-un').value,
-      preco: parseFloat(document.getElementById('p-pr').value)||0,
-      custo: parseFloat(document.getElementById('p-cu').value)||0,
-      estoque: parseInt(document.getElementById('p-est').value)||0,
-      estoque_min: parseInt(document.getElementById('p-emin').value)||5,
-      estoque_max: parseInt(document.getElementById('p-emax').value)||100,
+      unidade:       document.getElementById('p-un').value,
+      preco:         parseFloat(document.getElementById('p-pr').value)||0,
+      custo:         parseFloat(document.getElementById('p-cu').value)||0,
+      estoque:       parseInt(document.getElementById('p-est').value)||0,
+      estoque_min:   parseInt(document.getElementById('p-emin').value)||5,
+      estoque_max:   parseInt(document.getElementById('p-emax').value)||100,
       fornecedor_id: document.getElementById('p-for').value||null,
-      observacoes: document.getElementById('p-ob').value.trim(),
+      observacoes:   document.getElementById('p-ob').value.trim(),
     };
-    if (editId.prod) {
-      await dbUpdate('produtos', editId.prod, payload);
-    } else {
-      await dbInsert('produtos', { ...payload, workspace_id: wsId() });
-    }
-    fecharM('prod'); await rProd(); alrt('prod', editId.prod?'Produto atualizado.':'Produto cadastrado.','s'); updBadges();
-  } catch(e) { alrt('mprod','Erro ao salvar: '+e.message,'d'); }
-  setLoading('btn-prod', false, 'Salvar produto');
+    if (editId.prod) await dbUpdate('produtos',editId.prod,payload);
+    else await dbInsert('produtos',{...payload,workspace_id:wsId()});
+    fecharM('prod'); await rProd(); alrt('prod',editId.prod?'Produto atualizado.':'Produto cadastrado.','s');
+    updBadges();
+  } catch(e) { alrt('mprod','Erro: '+e.message,'d'); }
+  setLoading('btn-prod',false,'Salvar produto');
 }
 
 // ── CLIENTES ─────────────────────────────────────────────────
 async function rCli(f) {
-  if (!wsId()) return;
-  document.getElementById('act-cli').innerHTML = `<button class="btn bp sm" onclick="openCli()"><i class="ti ti-plus"></i>Novo cliente</button>`;
+  document.getElementById('act-cli').innerHTML=`<button class="btn bp sm" onclick="openCli()"><i class="ti ti-plus"></i>Novo cliente</button>`;
   const tb = document.getElementById('tb-cli');
   try {
     let data;
     if (_isOnline) {
-      const res = await sb.from('clientes').select('*').eq('workspace_id', wsId()).order('nome');
+      const res = await sb.from('clientes').select('*').eq('workspace_id',wsId()).order('nome');
       if (res.error) throw res.error;
-      data = res.data || [];
-      await idbClear('clientes');
-      for (const r of data) await idbPut('clientes', r);
+      data = res.data||[];
+      await idbClear('clientes'); for (const r of data) await idbPut('clientes',r);
     } else {
-      data = await idbGetAll('clientes');
-      data = data.filter(r => r.workspace_id === wsId()).sort((a,b) => (a.nome||'').localeCompare(b.nome||''));
+      data = (await idbGetAll('clientes')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     }
-    _clientes = data || [];
-    const l = f ? _clientes.filter(c=>(c.nome+c.cpf_cnpj+c.cidade).toLowerCase().includes(f.toLowerCase())) : _clientes;
-    if (!l.length) { tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum cliente cadastrado.</td></tr>'; return; }
-    tb.innerHTML = l.map(c => `<tr><td><span style="font-family:monospace;font-weight:600;color:var(--blue-txt)">${c.codigo||'—'}</span></td><td>${c.nome}<small style="display:block;color:var(--txt2)">${c.tipo||''}</small></td><td>${c.cpf_cnpj||'—'}</td><td>${c.telefone||'—'}</td><td>${c.email||'—'}</td><td><div class="tda"><button class="btn sm" onclick="openCli('${c.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluir('clientes','${c.id}','cli')"><i class="ti ti-trash"></i></button></div></td></tr>`).join('');
-  } catch(e) { tb.innerHTML=`<tr><td colspan="6" class="emp">Erro ao carregar: ${e.message}</td></tr>`; }
+    _clientes = data;
+    const l = f ? data.filter(c=>(c.nome+c.cpf_cnpj+c.cidade).toLowerCase().includes(f.toLowerCase())) : data;
+    if (!l.length) { tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum cliente.</td></tr>'; return; }
+    tb.innerHTML = l.map(c=>`<tr>
+      <td style="font-family:monospace;font-weight:600;color:var(--blue-txt)">${c.codigo||'—'}</td>
+      <td>${c.nome}<small style="display:block;color:var(--txt2)">${c.tipo||''}</small></td>
+      <td>${c.cpf_cnpj||'—'}</td><td>${c.telefone||'—'}</td><td>${c.email||'—'}</td>
+      <td><div class="tda">
+        <button class="btn sm" onclick="openCli('${c.id}')"><i class="ti ti-edit"></i></button>
+        <button class="btn sm bda" onclick="excluir('clientes','${c.id}','cli')"><i class="ti ti-trash"></i></button>
+      </div></td></tr>`).join('');
+  } catch(e) { tb.innerHTML=`<tr><td colspan="6" class="emp">Erro: ${e.message}</td></tr>`; }
 }
 function filtrarCli() { rCli(document.getElementById('s-cli').value); }
 
-async function openCli(id = null) {
+async function openCli(id=null) {
   editId.cli = id;
-  document.getElementById('mc-t').textContent = id ? 'Editar cliente' : 'Novo cliente';
+  document.getElementById('mc-t').textContent = id?'Editar cliente':'Novo cliente';
   document.getElementById('a-mcli').innerHTML = '';
-
-  // Limpa todos os campos
-  ['c-nm','c-cod','c-doc','c-tel','c-em','c-end','c-cid','c-ob'].forEach(fid => {
-    const el = document.getElementById(fid); if (el) el.value = '';
-  });
-  document.getElementById('c-lim').value = 0;
-  document.getElementById('c-tp').value  = 'Pessoa física';
-  document.getElementById('c-st').value  = 'Ativo';
-  document.getElementById('c-uf').value  = '';
-  resetCodLabel('cli');
-
+  ['c-nm','c-doc','c-tel','c-em','c-end','c-cid','c-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
+  document.getElementById('c-lim').value=0;
+  document.getElementById('c-tp').value='Pessoa física';
+  document.getElementById('c-st').value='Ativo';
+  document.getElementById('c-uf').value='';
   if (id) {
-    const c = _clientes.find(x => x.id === id);
+    const c = _clientes.find(x=>x.id===id);
     if (c) {
       document.getElementById('c-nm').value  = c.nome||'';
-      document.getElementById('c-cod').value = c.codigo||'';
       document.getElementById('c-doc').value = c.cpf_cnpj||'';
       document.getElementById('c-tp').value  = c.tipo||'Pessoa física';
       document.getElementById('c-tel').value = c.telefone||'';
@@ -1677,85 +1348,75 @@ async function openCli(id = null) {
       document.getElementById('c-ob').value  = c.observacoes||'';
     }
   }
-
   abrirM('cli');
 }
 
 async function salvarCli() {
   const nm = document.getElementById('c-nm').value.trim();
   if (!nm) { alrt('mcli','Informe o nome.','d'); return; }
-  setLoading('btn-cli', true);
+  setLoading('btn-cli',true);
   try {
-    if (!editId.cli) {
-      await sincronizarContador('cli');
-      aplicarProximoCodigo('cli');
-    }
+    const codigo = editId.cli
+      ? (_clientes.find(x=>x.id===editId.cli)?.codigo || await proximoCodigo('cli'))
+      : await proximoCodigo('cli');
     const payload = {
-      nome: nm,
-      codigo: document.getElementById('c-cod').value.trim() || padCod(Date.now()).slice(-6),
-      cpf_cnpj: document.getElementById('c-doc').value.trim(),
-      tipo: document.getElementById('c-tp').value,
-      telefone: document.getElementById('c-tel').value.trim(),
-      email: document.getElementById('c-em').value.trim(),
-      endereco: document.getElementById('c-end').value.trim(),
-      cidade: document.getElementById('c-cid').value.trim(),
-      uf: document.getElementById('c-uf').value,
-      limite_credito: parseFloat(document.getElementById('c-lim').value)||0,
-      status: document.getElementById('c-st').value,
-      observacoes: document.getElementById('c-ob').value.trim(),
+      nome: nm, codigo,
+      cpf_cnpj:      document.getElementById('c-doc').value.trim(),
+      tipo:          document.getElementById('c-tp').value,
+      telefone:      document.getElementById('c-tel').value.trim(),
+      email:         document.getElementById('c-em').value.trim(),
+      endereco:      document.getElementById('c-end').value.trim(),
+      cidade:        document.getElementById('c-cid').value.trim(),
+      uf:            document.getElementById('c-uf').value,
+      limite_credito:parseFloat(document.getElementById('c-lim').value)||0,
+      status:        document.getElementById('c-st').value,
+      observacoes:   document.getElementById('c-ob').value.trim(),
     };
-    if (editId.cli) {
-      await dbUpdate('clientes', editId.cli, payload);
-    } else {
-      await dbInsert('clientes', { ...payload, workspace_id: wsId() });
-    }
-    fecharM('cli'); await rCli(); alrt('cli', editId.cli?'Cliente atualizado.':'Cliente cadastrado.','s');
+    if (editId.cli) await dbUpdate('clientes',editId.cli,payload);
+    else await dbInsert('clientes',{...payload,workspace_id:wsId()});
+    fecharM('cli'); await rCli(); alrt('cli',editId.cli?'Cliente atualizado.':'Cliente cadastrado.','s');
   } catch(e) { alrt('mcli','Erro: '+e.message,'d'); }
-  setLoading('btn-cli', false, 'Salvar cliente');
+  setLoading('btn-cli',false,'Salvar cliente');
 }
 
 // ── FORNECEDORES ─────────────────────────────────────────────
 async function rForn(f) {
-  if (!wsId()) return;
-  document.getElementById('act-forn').innerHTML = `<button class="btn bp sm" onclick="openForn()"><i class="ti ti-plus"></i>Novo fornecedor</button>`;
+  document.getElementById('act-forn').innerHTML=`<button class="btn bp sm" onclick="openForn()"><i class="ti ti-plus"></i>Novo fornecedor</button>`;
   const tb = document.getElementById('tb-forn');
   try {
     let data;
     if (_isOnline) {
-      const res = await sb.from('fornecedores').select('*').eq('workspace_id', wsId()).order('nome');
+      const res = await sb.from('fornecedores').select('*').eq('workspace_id',wsId()).order('nome');
       if (res.error) throw res.error;
-      data = res.data || [];
-      await idbClear('fornecedores');
-      for (const r of data) await idbPut('fornecedores', r);
+      data = res.data||[];
+      await idbClear('fornecedores'); for (const r of data) await idbPut('fornecedores',r);
     } else {
-      data = await idbGetAll('fornecedores');
-      data = data.filter(r => r.workspace_id === wsId()).sort((a,b) => (a.nome||'').localeCompare(b.nome||''));
+      data = (await idbGetAll('fornecedores')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     }
-    _fornecedores = data || [];
-    const l = f ? _fornecedores.filter(x=>(x.nome+x.cnpj).toLowerCase().includes(f.toLowerCase())) : _fornecedores;
+    _fornecedores = data;
+    const l = f ? data.filter(x=>(x.nome+x.cnpj).toLowerCase().includes(f.toLowerCase())) : data;
     if (!l.length) { tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum fornecedor.</td></tr>'; return; }
-    tb.innerHTML = l.map(x => `<tr><td><span style="font-family:monospace;font-weight:600;color:var(--blue-txt)">${x.codigo||'—'}</span></td><td>${x.nome}</td><td>${x.cnpj||'—'}</td><td>${x.contato||'—'}</td><td>${x.telefone||'—'}</td><td><div class="tda"><button class="btn sm" onclick="openForn('${x.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluir('fornecedores','${x.id}','forn')"><i class="ti ti-trash"></i></button></div></td></tr>`).join('');
-  } catch(e) { tb.innerHTML=`<tr><td colspan="6" class="emp">Erro ao carregar: ${e.message}</td></tr>`; }
+    tb.innerHTML = l.map(x=>`<tr>
+      <td style="font-family:monospace;font-weight:600;color:var(--blue-txt)">${x.codigo||'—'}</td>
+      <td>${x.nome}</td><td>${x.cnpj||'—'}</td><td>${x.contato||'—'}</td><td>${x.telefone||'—'}</td>
+      <td><div class="tda">
+        <button class="btn sm" onclick="openForn('${x.id}')"><i class="ti ti-edit"></i></button>
+        <button class="btn sm bda" onclick="excluir('fornecedores','${x.id}','forn')"><i class="ti ti-trash"></i></button>
+      </div></td></tr>`).join('');
+  } catch(e) { tb.innerHTML=`<tr><td colspan="6" class="emp">Erro: ${e.message}</td></tr>`; }
 }
 function filtrarForn() { rForn(document.getElementById('s-forn').value); }
 
-async function openForn(id = null) {
+async function openForn(id=null) {
   editId.forn = id;
-  document.getElementById('mf-t').textContent = id ? 'Editar fornecedor' : 'Novo fornecedor';
+  document.getElementById('mf-t').textContent = id?'Editar fornecedor':'Novo fornecedor';
   document.getElementById('a-mforn').innerHTML = '';
-
-  // Limpa todos os campos
-  ['f-nm','f-cod','f-cnpj','f-ct','f-tel','f-em','f-end','f-cid','f-ob'].forEach(fid => {
-    const el = document.getElementById(fid); if (el) el.value = '';
-  });
-  document.getElementById('f-uf').value = '';
-  resetCodLabel('forn');
-
+  ['f-nm','f-cnpj','f-ct','f-tel','f-em','f-end','f-cid','f-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
+  document.getElementById('f-uf').value='';
   if (id) {
-    const f = _fornecedores.find(x => x.id === id);
+    const f = _fornecedores.find(x=>x.id===id);
     if (f) {
       document.getElementById('f-nm').value   = f.nome||'';
-      document.getElementById('f-cod').value  = f.codigo||'';
       document.getElementById('f-cnpj').value = f.cnpj||'';
       document.getElementById('f-ct').value   = f.contato||'';
       document.getElementById('f-tel').value  = f.telefone||'';
@@ -1766,670 +1427,518 @@ async function openForn(id = null) {
       document.getElementById('f-ob').value   = f.observacoes||'';
     }
   }
-
   abrirM('forn');
 }
 
 async function salvarForn() {
   const nm = document.getElementById('f-nm').value.trim();
   if (!nm) { alrt('mforn','Informe a razão social.','d'); return; }
-  setLoading('btn-forn', true);
+  setLoading('btn-forn',true);
   try {
-    if (!editId.forn) {
-      await sincronizarContador('forn');
-      aplicarProximoCodigo('forn');
-    }
+    const codigo = editId.forn
+      ? (_fornecedores.find(x=>x.id===editId.forn)?.codigo || await proximoCodigo('forn'))
+      : await proximoCodigo('forn');
     const payload = {
-      nome: nm,
-      codigo: document.getElementById('f-cod').value.trim() || padCod(Date.now()).slice(-6),
-      cnpj: document.getElementById('f-cnpj').value.trim(),
-      contato: document.getElementById('f-ct').value.trim(),
-      telefone: document.getElementById('f-tel').value.trim(),
-      email: document.getElementById('f-em').value.trim(),
-      endereco: document.getElementById('f-end').value.trim(),
-      cidade: document.getElementById('f-cid').value.trim(),
-      uf: document.getElementById('f-uf').value,
+      nome: nm, codigo,
+      cnpj:        document.getElementById('f-cnpj').value.trim(),
+      contato:     document.getElementById('f-ct').value.trim(),
+      telefone:    document.getElementById('f-tel').value.trim(),
+      email:       document.getElementById('f-em').value.trim(),
+      endereco:    document.getElementById('f-end').value.trim(),
+      cidade:      document.getElementById('f-cid').value.trim(),
+      uf:          document.getElementById('f-uf').value,
       observacoes: document.getElementById('f-ob').value.trim(),
     };
-    if (editId.forn) {
-      await dbUpdate('fornecedores', editId.forn, payload);
-    } else {
-      await dbInsert('fornecedores', { ...payload, workspace_id: wsId() });
-    }
-    fecharM('forn'); await rForn(); alrt('forn', editId.forn?'Atualizado.':'Fornecedor cadastrado.','s');
+    if (editId.forn) await dbUpdate('fornecedores',editId.forn,payload);
+    else await dbInsert('fornecedores',{...payload,workspace_id:wsId()});
+    fecharM('forn'); await rForn(); alrt('forn',editId.forn?'Atualizado.':'Fornecedor cadastrado.','s');
   } catch(e) { alrt('mforn','Erro: '+e.message,'d'); }
-  setLoading('btn-forn', false, 'Salvar fornecedor');
+  setLoading('btn-forn',false,'Salvar fornecedor');
 }
 
 // ── VENDAS ───────────────────────────────────────────────────
 async function rVend() {
-  if (!wsId()) return;
   const tb = document.getElementById('tb-vend');
   try {
     let data;
     if (_isOnline) {
-      const res = await sb.from('vendas').select('*,clientes(nome),venda_itens(id)').eq('workspace_id', wsId()).order('created_at', { ascending: false });
+      const res = await sb.from('vendas').select('*,clientes(nome),venda_itens(id)').eq('workspace_id',wsId()).order('created_at',{ascending:false});
       if (res.error) throw res.error;
-      data = res.data || [];
+      data = res.data||[];
     } else {
-      data = (await idbGetAll('vendas')).filter(r => r.workspace_id === wsId());
-      data.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
+      data = (await idbGetAll('vendas')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||''));
     }
-    if (!data.length) { tb.innerHTML='<tr><td colspan="8" class="emp">Nenhuma venda registrada.</td></tr>'; return; }
-    tb.innerHTML = data.map(v => `<tr><td><small style="color:var(--txt2)">${v.id.slice(-6)}</small></td><td>${v.data}</td><td>${v.clientes?.nome||'—'}</td><td>${(v.venda_itens||[]).length}</td><td>${R(v.total)}</td><td>${v.pagamento||'—'}</td><td><span class="badge bs">Concluída</span></td><td><button class="btn sm" onclick="verDoc('${v.id}','venda')"><i class="ti ti-eye"></i></button></td></tr>`).join('');
-  } catch(e) { tb.innerHTML=`<tr><td colspan="8" class="emp">Erro ao carregar: ${e.message}</td></tr>`; }
+    if (!data.length) { tb.innerHTML='<tr><td colspan="8" class="emp">Nenhuma venda.</td></tr>'; return; }
+    tb.innerHTML = data.map(v=>`<tr>
+      <td><small style="color:var(--txt2)">${String(v.id||'').slice(-6)}</small></td>
+      <td>${v.data}</td><td>${v.clientes?.nome||'—'}</td>
+      <td>${(v.venda_itens||[]).length}</td><td>${R(v.total)}</td>
+      <td>${v.pagamento||'—'}</td>
+      <td><span class="badge bs">Concluída</span></td>
+      <td><button class="btn sm" onclick="verDoc('${v.id}','venda')"><i class="ti ti-eye"></i></button></td></tr>`).join('');
+  } catch(e) { tb.innerHTML=`<tr><td colspan="8" class="emp">Erro: ${e.message}</td></tr>`; }
 }
 
 async function rOrc() {
-  if (!wsId()) return;
   const tb = document.getElementById('tb-orc');
   try {
     let data;
     if (_isOnline) {
-      const res = await sb.from('orcamentos').select('*,clientes(nome),orcamento_itens(id)').eq('workspace_id', wsId()).order('created_at', { ascending: false });
+      const res = await sb.from('orcamentos').select('*,clientes(nome),orcamento_itens(id)').eq('workspace_id',wsId()).order('created_at',{ascending:false});
       if (res.error) throw res.error;
-      data = res.data || [];
+      data = res.data||[];
     } else {
-      data = (await idbGetAll('orcamentos')).filter(r => r.workspace_id === wsId());
-      data.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
+      data = (await idbGetAll('orcamentos')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||''));
     }
     if (!data.length) { tb.innerHTML='<tr><td colspan="7" class="emp">Nenhum orçamento.</td></tr>'; return; }
-    tb.innerHTML = data.map(o => {
-      const bc = o.status==='Aprovado'?'bs':o.status==='Cancelado'?'bd':'bw';
-      const acts = o.status==='Em aberto'
-        ? `<button class="btn sm bsu" onclick="aprovarOrc('${o.id}')"><i class="ti ti-check"></i></button><button class="btn sm bda" onclick="cancelarOrc('${o.id}')"><i class="ti ti-x"></i></button>`
-        : '';
-      return `<tr><td><small style="color:var(--txt2)">${o.id.slice(-6)}</small></td><td>${o.data}</td><td>${o.clientes?.nome||'—'}</td><td>${o.validade||'—'}</td><td>${R(o.total)}</td><td><span class="badge ${bc}">${o.status}</span></td><td><div class="tda"><button class="btn sm" onclick="verDoc('${o.id}','orc')"><i class="ti ti-eye"></i></button>${acts}</div></td></tr>`;
+    tb.innerHTML = data.map(o=>{
+      const bc=o.status==='Aprovado'?'bs':o.status==='Cancelado'?'bd':'bw';
+      const acts=o.status==='Em aberto'
+        ?`<button class="btn sm bsu" onclick="aprovarOrc('${o.id}')"><i class="ti ti-check"></i></button>
+           <button class="btn sm bda" onclick="cancelarOrc('${o.id}')"><i class="ti ti-x"></i></button>`:'';
+      return `<tr>
+        <td><small style="color:var(--txt2)">${String(o.id||'').slice(-6)}</small></td>
+        <td>${o.data}</td><td>${o.clientes?.nome||'—'}</td><td>${o.validade||'—'}</td><td>${R(o.tot||o.total||0)}</td>
+        <td><span class="badge ${bc}">${o.status}</span></td>
+        <td><div class="tda"><button class="btn sm" onclick="verDoc('${o.id}','orc')"><i class="ti ti-eye"></i></button>${acts}</div></td></tr>`;
     }).join('');
-  } catch(e) { tb.innerHTML=`<tr><td colspan="7" class="emp">Erro ao carregar: ${e.message}</td></tr>`; }
+  } catch(e) { tb.innerHTML=`<tr><td colspan="7" class="emp">Erro: ${e.message}</td></tr>`; }
 }
 
 function openVnd(modo) {
-  mV = modo; iV = [];
-  if (!_clientes.length) sb.from('clientes').select('id,nome').eq('workspace_id', wsId()).then(({data})=>{ _clientes = data||[]; populateVnd(); });
-  if (!_produtos.length) sb.from('produtos').select('id,nome,preco,estoque,unidade').eq('workspace_id', wsId()).then(({data})=>{ _produtos = data||[]; populateVnd(); });
-  populateVnd();
-  document.getElementById('mv-t').textContent = modo==='venda' ? 'Nova venda' : 'Novo orçamento';
-  document.getElementById('btn-sv').innerHTML = `<i class="ti ti-check"></i>${modo==='venda'?'Registrar venda':'Salvar orçamento'}`;
-  document.getElementById('v-exlbl').textContent = modo==='venda' ? 'Data' : 'Validade até';
-  document.getElementById('v-ex').value = hj();
-  document.getElementById('v-ob').value = '';
-  document.getElementById('v-desc').value = 0;
-  document.getElementById('v-fst').value = 'pago';
-  document.getElementById('venc-f').style.display = 'none';
-  document.getElementById('a-mvnd').innerHTML = '';
+  modoVenda=modo; iV=[];
+  document.getElementById('mv-t').textContent=modo==='venda'?'Nova venda':'Novo orçamento';
+  document.getElementById('btn-sv').innerHTML=`<i class="ti ti-check"></i>${modo==='venda'?'Registrar venda':'Salvar orçamento'}`;
+  document.getElementById('v-exlbl').textContent=modo==='venda'?'Data':'Validade até';
+  document.getElementById('v-ex').value=hj();
+  document.getElementById('v-ob').value='';
+  document.getElementById('v-desc').value=0;
+  document.getElementById('v-fst').value='pago';
+  document.getElementById('venc-f').style.display='none';
+  document.getElementById('a-mvnd').innerHTML='';
+  const sc=document.getElementById('v-cli');
+  sc.innerHTML='<option value="">— Sem cliente —</option>';
+  _clientes.forEach(c=>{sc.innerHTML+=`<option value="${c.id}">${c.nome}</option>`;});
+  const sp=document.getElementById('vi-p');
+  sp.innerHTML='<option value="">— Selecionar produto —</option>';
+  _produtos.forEach(p=>{sp.innerHTML+=`<option value="${p.id}">${p.nome} · ${R(p.preco)} (est: ${p.estoque})</option>`;});
+  document.getElementById('vi-q').value=1;
+  document.getElementById('vi-pr').value='';
   rItens();
   abrirM('vnd');
 }
-function populateVnd() {
-  const sc = document.getElementById('v-cli');
-  sc.innerHTML = '<option value="">— Sem cliente —</option>';
-  _clientes.forEach(c => { sc.innerHTML += `<option value="${c.id}">${c.nome}</option>`; });
-  const sp = document.getElementById('vi-p');
-  sp.innerHTML = '<option value="">— Selecionar produto —</option>';
-  _produtos.forEach(p => { sp.innerHTML += `<option value="${p.id}">${p.nome} · ${R(p.preco)} (est: ${p.estoque})</option>`; });
-}
-function toggleVenc() { document.getElementById('venc-f').style.display = document.getElementById('v-fst').value==='prazo'?'':'none'; }
-function viPreco() {
-  const p = _produtos.find(x=>x.id===document.getElementById('vi-p').value);
-  if (p) document.getElementById('vi-pr').value = p.preco;
-}
+function toggleVenc() { document.getElementById('venc-f').style.display=document.getElementById('v-fst').value==='prazo'?'':'none'; }
+function viPreco() { const p=_produtos.find(x=>x.id===document.getElementById('vi-p').value); if(p) document.getElementById('vi-pr').value=p.preco; }
 function addItem() {
-  const pid = document.getElementById('vi-p').value;
-  if (!pid) { alert('Selecione um produto.'); return; }
-  const qtd = parseInt(document.getElementById('vi-q').value)||1;
-  const pr = parseFloat(document.getElementById('vi-pr').value)||0;
-  const p = _produtos.find(x=>x.id===pid); if (!p) return;
-  if (mV==='venda' && p.estoque < qtd) { if (!confirm(`Estoque insuficiente (${p.estoque} ${p.unidade}). Continuar?`)) return; }
-  const ex = iV.findIndex(i=>i.produto_id===pid);
-  if (ex>=0) { iV[ex].quantidade+=qtd; iV[ex].preco_unitario=pr; }
-  else iV.push({ produto_id: pid, nome_produto: p.nome, quantidade: qtd, preco_unitario: pr });
+  const pid=document.getElementById('vi-p').value;
+  if (!pid){alert('Selecione um produto.');return;}
+  const qtd=parseInt(document.getElementById('vi-q').value)||1;
+  const pr=parseFloat(document.getElementById('vi-pr').value)||0;
+  const p=_produtos.find(x=>x.id===pid); if(!p)return;
+  if (modoVenda==='venda'&&p.estoque<qtd) if(!confirm(`Estoque insuficiente (${p.estoque}). Continuar?`))return;
+  const ex=iV.findIndex(i=>i.produto_id===pid);
+  if(ex>=0){iV[ex].quantidade+=qtd;iV[ex].preco_unitario=pr;}
+  else iV.push({produto_id:pid,nome_produto:p.nome,quantidade:qtd,preco_unitario:pr});
   rItens();
 }
-function remItem(i) { iV.splice(i,1); rItens(); }
-function calcTot() { const sub=iV.reduce((s,i)=>s+i.quantidade*i.preco_unitario,0); return Math.max(0,sub-(parseFloat(document.getElementById('v-desc').value)||0)); }
-function rItens() {
-  const tb = document.getElementById('vi-tb');
-  if (!iV.length) { tb.innerHTML='<tr><td colspan="5" class="emp" style="padding:12px">Nenhum item.</td></tr>'; document.getElementById('vi-tot').textContent='R$ 0,00'; return; }
-  tb.innerHTML = iV.map((it,i)=>`<tr><td>${it.nome_produto}</td><td>${it.quantidade}</td><td>${R(it.preco_unitario)}</td><td>${R(it.quantidade*it.preco_unitario)}</td><td><button class="btn sm bda" onclick="remItem(${i})"><i class="ti ti-x"></i></button></td></tr>`).join('');
-  document.getElementById('vi-tot').textContent = R(calcTot());
+function remItem(i){iV.splice(i,1);rItens();}
+function calcTot(){return Math.max(0,iV.reduce((s,i)=>s+i.quantidade*i.preco_unitario,0)-(parseFloat(document.getElementById('v-desc').value)||0));}
+function rItens(){
+  const tb=document.getElementById('vi-tb');
+  if(!iV.length){tb.innerHTML='<tr><td colspan="5" class="emp" style="padding:12px">Nenhum item.</td></tr>';document.getElementById('vi-tot').textContent='R$ 0,00';return;}
+  tb.innerHTML=iV.map((it,i)=>`<tr><td>${it.nome_produto}</td><td>${it.quantidade}</td><td>${R(it.preco_unitario)}</td><td>${R(it.quantidade*it.preco_unitario)}</td><td><button class="btn sm bda" onclick="remItem(${i})"><i class="ti ti-x"></i></button></td></tr>`).join('');
+  document.getElementById('vi-tot').textContent=R(calcTot());
 }
 
 async function salvarVnd() {
-  if (!iV.length) { alert('Adicione ao menos um item.'); return; }
-  const btn = document.getElementById('btn-sv'); btn.disabled = true; btn.innerHTML='<span class="spin-inline"></span> Salvando...';
+  if(!iV.length){alert('Adicione ao menos um item.');return;}
+  const btn=document.getElementById('btn-sv'); btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Salvando...';
   try {
-    const tot = calcTot();
-    const cliId = document.getElementById('v-cli').value || null;
-    const pgto = document.getElementById('v-pgto').value;
-    const ex = document.getElementById('v-ex').value;
-    const ob = document.getElementById('v-ob').value;
-    const fst = document.getElementById('v-fst').value;
-    const desc = parseFloat(document.getElementById('v-desc').value)||0;
-    if (mV==='venda') {
-      const vendaPayload = { workspace_id: wsId(), cliente_id: cliId, data: ex||hj(), total: tot, desconto: desc, pagamento: pgto, status:'Concluída', fin_status: fst, observacoes: ob };
-      const v = await dbInsert('vendas', vendaPayload);
-      if (iV.length) {
-        for (const it of iV) {
-          await dbInsert('venda_itens', { venda_id: v.id, ...it });
-        }
+    const tot=calcTot(), cliId=document.getElementById('v-cli').value||null;
+    const pgto=document.getElementById('v-pgto').value, ex=document.getElementById('v-ex').value;
+    const ob=document.getElementById('v-ob').value, fst=document.getElementById('v-fst').value;
+    const desc=parseFloat(document.getElementById('v-desc').value)||0;
+    if (modoVenda==='venda') {
+      const v = await dbInsert('vendas',{workspace_id:wsId(),cliente_id:cliId,data:ex||hj(),total:tot,desconto:desc,pagamento:pgto,status:'Concluída',fin_status:fst,observacoes:ob});
+      for(const it of iV){
+        await dbInsert('venda_itens',{venda_id:v.id,...it});
+        const p=_produtos.find(x=>x.id===it.produto_id);
+        if(p){const ne=Math.max(0,p.estoque-it.quantidade);await dbUpdate('produtos',it.produto_id,{estoque:ne});p.estoque=ne;}
       }
-      for (const it of iV) {
-        const p = _produtos.find(x=>x.id===it.produto_id); if (!p) continue;
-        const novoEst = Math.max(0, p.estoque - it.quantidade);
-        await dbUpdate('produtos', it.produto_id, { estoque: novoEst });
-        await dbInsert('mov_estoque', { workspace_id: wsId(), produto_id: it.produto_id, nome_produto: it.nome_produto, operacao:'sub', quantidade: it.quantidade, estoque_antes: p.estoque, estoque_depois: novoEst, motivo:'Venda '+String(v.id).slice(-6), data: ex||hj() });
-        p.estoque = novoEst;
-      }
-      if (fst==='pago') {
-        await dbInsert('lancamentos', { workspace_id: wsId(), descricao: 'Venda '+String(v.id).slice(-6), tipo:'receita', categoria:'Vendas', valor: tot, data: ex||hj(), status:'confirmado', metodo: pgto });
-      } else {
-        const vc = document.getElementById('v-venc').value;
-        await dbInsert('contas_receber', { workspace_id: wsId(), cliente_id: cliId, descricao:'Venda '+String(v.id).slice(-6), vencimento: vc||ex||hj(), valor: tot, status:'aberto', categoria:'Venda' });
-      }
-      fecharM('vnd'); await rVend(); alrt('vend',_isOnline?'Venda registrada! Estoque atualizado.':'Venda salva offline! Será sincronizada quando houver conexão.','s');
+      if(fst==='pago') await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Venda '+String(v.id).slice(-6),tipo:'receita',categoria:'Vendas',valor:tot,data:ex||hj(),status:'confirmado',metodo:pgto});
+      else {const vc=document.getElementById('v-venc').value; await dbInsert('contas_receber',{workspace_id:wsId(),cliente_id:cliId,descricao:'Venda '+String(v.id).slice(-6),vencimento:vc||ex||hj(),valor:tot,status:'aberto',categoria:'Venda'});}
+      fecharM('vnd'); await rVend(); alrt('vend','Venda registrada!','s');
     } else {
-      const { data: o, error } = await sb.from('orcamentos').insert({ workspace_id: wsId(), cliente_id: cliId, data: hj(), validade: ex||null, total: tot, desconto: desc, status:'Em aberto', observacoes: ob }).select().single();
-      if (error) throw error;
-      if (iV.length) await sb.from('orcamento_itens').insert(iV.map(it=>({ orcamento_id: o.id, ...it })));
-      fecharM('vnd'); await rOrc(); alrt('orc','Orçamento salvo com sucesso!','s');
+      const o = await dbInsert('orcamentos',{workspace_id:wsId(),cliente_id:cliId,data:hj(),validade:ex||null,total:tot,desconto:desc,status:'Em aberto',observacoes:ob});
+      for(const it of iV) await dbInsert('orcamento_itens',{orcamento_id:o.id,...it});
+      fecharM('vnd'); await rOrc(); alrt('orc','Orçamento salvo!','s');
     }
     updBadges();
-  } catch(e) { alrt('mvnd','Erro: '+e.message,'d'); }
-  btn.disabled = false; btn.innerHTML = `<i class="ti ti-check"></i>${mV==='venda'?'Registrar venda':'Salvar orçamento'}`;
+  } catch(e){alrt('mvnd','Erro: '+e.message,'d');}
+  btn.disabled=false; btn.innerHTML=`<i class="ti ti-check"></i>${modoVenda==='venda'?'Registrar venda':'Salvar orçamento'}`;
 }
 
-async function aprovarOrc(id) {
-  if (!confirm('Aprovar este orçamento e gerar venda?')) return;
-  try {
-    const { data: o } = await sb.from('orcamentos').select('*,orcamento_itens(*)').eq('id',id).single();
-    await dbUpdate('orcamentos', id, { status:'Aprovado' });
-    const v = await dbInsert('vendas', { workspace_id: wsId(), cliente_id: o.cliente_id, data: hj(), total: o.total, pagamento:'—', status:'Concluída', fin_status:'pago', observacoes:'Orçamento '+String(id).slice(-6) });
-    if (o.orcamento_itens?.length) {
-      for (const it of o.orcamento_itens) {
-        await dbInsert('venda_itens', { venda_id: v.id, produto_id: it.produto_id, nome_produto: it.nome_produto, quantidade: it.quantidade, preco_unitario: it.preco_unitario });
-        const prod = _produtos.find(x=>x.id===it.produto_id);
-        if (prod) {
-          const ne = Math.max(0, prod.estoque - it.quantidade);
-          await dbUpdate('produtos', it.produto_id, { estoque: ne });
-          prod.estoque = ne;
-        }
-      }
+async function aprovarOrc(id){
+  if(!confirm('Aprovar e gerar venda?'))return;
+  try{
+    const {data:o}=await sb.from('orcamentos').select('*,orcamento_itens(*)').eq('id',id).single();
+    await dbUpdate('orcamentos',id,{status:'Aprovado'});
+    const v=await dbInsert('vendas',{workspace_id:wsId(),cliente_id:o.cliente_id,data:hj(),total:o.total,pagamento:'—',status:'Concluída',fin_status:'pago',observacoes:'Orçamento '+String(id).slice(-6)});
+    for(const it of o.orcamento_itens||[]){
+      await dbInsert('venda_itens',{venda_id:v.id,...it});
+      const p=_produtos.find(x=>x.id===it.produto_id);
+      if(p){const ne=Math.max(0,p.estoque-it.quantidade);await dbUpdate('produtos',it.produto_id,{estoque:ne});p.estoque=ne;}
     }
-    await dbInsert('lancamentos', { workspace_id: wsId(), descricao:'Orçamento aprovado '+String(id).slice(-6), tipo:'receita', categoria:'Vendas', valor: o.total, data: hj(), status:'confirmado', metodo:'—' });
+    await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Orçamento '+String(id).slice(-6),tipo:'receita',categoria:'Vendas',valor:o.total,data:hj(),status:'confirmado',metodo:'—'});
     await rOrc(); alrt('orc','Aprovado e venda gerada!','s'); updBadges();
-  } catch(e) { alrt('orc','Erro: '+e.message,'d'); }
+  }catch(e){alrt('orc','Erro: '+e.message,'d');}
 }
-async function cancelarOrc(id) {
-  if (!confirm('Cancelar orçamento?')) return;
-  await dbUpdate('orcamentos', id, {status:'Cancelado'});
-  rOrc();
-}
+async function cancelarOrc(id){if(!confirm('Cancelar?'))return;await dbUpdate('orcamentos',id,{status:'Cancelado'});rOrc();}
 
-async function verDoc(id, tipo) {
-  try {
-    const tbl = tipo==='orc'?'orcamentos':'vendas';
-    const itbl = tipo==='orc'?'orcamento_itens':'venda_itens';
-    const { data: rec } = await sb.from(tbl).select(`*,clientes(nome),${itbl}(*)`).eq('id',id).single();
-    const its = (rec[itbl]||[]).map(it=>`<tr><td style="padding:6px 8px">${it.nome_produto}</td><td style="text-align:right;padding:6px 8px">${it.quantidade}</td><td style="text-align:right;padding:6px 8px">${R(it.preco_unitario)}</td><td style="text-align:right;padding:6px 8px">${R(it.quantidade*it.preco_unitario)}</td></tr>`).join('');
-    document.getElementById('mview-t').textContent = (tipo==='orc'?'Orçamento ':'Venda ') + String(id).slice(-6);
-    document.getElementById('mview-b').innerHTML = `
+async function verDoc(id,tipo){
+  try{
+    const tbl=tipo==='orc'?'orcamentos':'vendas', itbl=tipo==='orc'?'orcamento_itens':'venda_itens';
+    const {data:rec}=await sb.from(tbl).select(`*,clientes(nome),${itbl}(*)`).eq('id',id).single();
+    const its=(rec[itbl]||[]).map(it=>`<tr><td style="padding:6px 8px">${it.nome_produto}</td><td style="text-align:right;padding:6px 8px">${it.quantidade}</td><td style="text-align:right;padding:6px 8px">${R(it.preco_unitario)}</td><td style="text-align:right;padding:6px 8px">${R(it.quantidade*it.preco_unitario)}</td></tr>`).join('');
+    document.getElementById('mview-t').textContent=(tipo==='orc'?'Orçamento ':'Venda ')+String(id).slice(-6);
+    document.getElementById('mview-b').innerHTML=`
       <table style="font-size:12px;margin-bottom:12px"><tbody>
         <tr><td style="color:var(--txt2);padding:5px 0;width:110px">Cliente</td><td>${rec.clientes?.nome||'—'}</td></tr>
         <tr><td style="color:var(--txt2);padding:5px 0">Data</td><td>${rec.data}</td></tr>
         <tr><td style="color:var(--txt2);padding:5px 0">Status</td><td>${rec.status}</td></tr>
         ${rec.pagamento?`<tr><td style="color:var(--txt2);padding:5px 0">Pagamento</td><td>${rec.pagamento}</td></tr>`:''}
-        ${rec.validade?`<tr><td style="color:var(--txt2);padding:5px 0">Validade</td><td>${rec.validade}</td></tr>`:''}
       </tbody></table>
       <table style="font-size:12px;border-collapse:collapse;width:100%">
         <thead><tr style="background:var(--bg2)"><th style="padding:7px 8px;text-align:left">Produto</th><th style="padding:7px 8px;text-align:right">Qtd</th><th style="padding:7px 8px;text-align:right">Unit.</th><th style="padding:7px 8px;text-align:right">Subtotal</th></tr></thead>
         <tbody>${its}</tbody>
         <tfoot><tr style="background:var(--bg2)"><td colspan="3" style="text-align:right;padding:8px;font-weight:600">Total</td><td style="padding:8px;font-weight:600;text-align:right">${R(rec.total)}</td></tr></tfoot>
-      </table>
-      ${rec.observacoes?`<div style="margin-top:10px;font-size:12px;color:var(--txt2)">Obs: ${rec.observacoes}</div>`:''}`;
+      </table>`;
     abrirM('view');
-  } catch(e) { console.error(e); }
+  }catch(e){console.error(e);}
 }
 
-// ── FINANCEIRO ───────────────────────────────────────────────
-async function rFin() {
-  if (!wsId()) return;
-  const tb = document.getElementById('tb-lan');
-  try {
+// ── FINANCEIRO ────────────────────────────────────────────────
+async function rFin(){
+  const tb=document.getElementById('tb-lan');
+  try{
     let data;
-    if (_isOnline) {
-      const res = await sb.from('lancamentos').select('*').eq('workspace_id', wsId()).order('data', { ascending: false });
-      if (res.error) throw res.error;
-      data = res.data || [];
-    } else {
-      data = (await idbGetAll('lancamentos')).filter(r => r.workspace_id === wsId());
-      data.sort((a,b) => (b.data||'').localeCompare(a.data||''));
-    }
-    const rec = (data||[]).filter(l=>l.tipo==='receita'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor),0);
-    const des = (data||[]).filter(l=>l.tipo==='despesa'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor),0);
-    const sal = rec - des;
-    document.getElementById('f-rec').textContent = R(rec);
-    document.getElementById('f-des').textContent = R(des);
-    const es = document.getElementById('f-sal'); es.textContent = R(sal); es.className = 'fcv ' + (sal>=0?'bl':'rd');
-    if (!data.length) { tb.innerHTML='<tr><td colspan="7" class="emp">Nenhum lançamento.</td></tr>'; return; }
-    tb.innerHTML = data.map(l => `<tr><td>${l.data}</td><td>${l.descricao}</td><td>${l.categoria||'—'}</td><td><span class="badge ${l.tipo==='receita'?'bs':'bd'}">${l.tipo}</span></td><td style="font-weight:600;color:var(--${l.tipo==='receita'?'green':'red'}-txt)">${R(l.valor)}</td><td><span class="badge ${l.status==='confirmado'?'bs':'bw'}">${l.status}</span></td><td><div class="tda"><button class="btn sm" onclick="openLan('${l.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluir('lancamentos','${l.id}','fin')"><i class="ti ti-trash"></i></button></div></td></tr>`).join('');
-  } catch(e) { tb.innerHTML=`<tr><td colspan="7" class="emp">Erro ao carregar: ${e.message}</td></tr>`; }
+    if(_isOnline){const res=await sb.from('lancamentos').select('*').eq('workspace_id',wsId()).order('data',{ascending:false});if(res.error)throw res.error;data=res.data||[];await idbClear('lancamentos');for(const r of data)await idbPut('lancamentos',r);}
+    else{data=(await idbGetAll('lancamentos')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(b.data||'').localeCompare(a.data||''));}
+    const rec=data.filter(l=>l.tipo==='receita'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
+    const des=data.filter(l=>l.tipo==='despesa'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
+    const sal=rec-des;
+    document.getElementById('f-rec').textContent=R(rec);
+    document.getElementById('f-des').textContent=R(des);
+    const es=document.getElementById('f-sal');es.textContent=R(sal);es.className='fcv '+(sal>=0?'bl':'rd');
+    if(!data.length){tb.innerHTML='<tr><td colspan="7" class="emp">Nenhum lançamento.</td></tr>';return;}
+    tb.innerHTML=data.map(l=>`<tr>
+      <td>${l.data}</td><td>${l.descricao}</td><td>${l.categoria||'—'}</td>
+      <td><span class="badge ${l.tipo==='receita'?'bs':'bd'}">${l.tipo}</span></td>
+      <td style="font-weight:600;color:var(--${l.tipo==='receita'?'green':'red'}-txt)">${R(l.valor)}</td>
+      <td><span class="badge ${l.status==='confirmado'?'bs':'bw'}">${l.status}</span></td>
+      <td><div class="tda">
+        <button class="btn sm" onclick="openLan('${l.id}')"><i class="ti ti-edit"></i></button>
+        <button class="btn sm bda" onclick="excluir('lancamentos','${l.id}','fin')"><i class="ti ti-trash"></i></button>
+      </div></td></tr>`).join('');
+  }catch(e){tb.innerHTML=`<tr><td colspan="7" class="emp">Erro: ${e.message}</td></tr>`;}
 }
 
-async function openLan(id = null) {
-  editId.lan = id;
-  document.getElementById('ml-t').textContent = id ? 'Editar lançamento' : 'Novo lançamento';
-  document.getElementById('a-mlan').innerHTML = '';
-  ['ds','ob'].forEach(k => { const e=document.getElementById('l-'+k); if(e) e.value=''; });
-  ['vl'].forEach(k => { const e=document.getElementById('l-'+k); if(e) e.value=''; });
-  document.getElementById('l-dt').value = hj();
-  document.getElementById('l-tp').value = 'receita';
-  document.getElementById('l-st').value = 'confirmado';
-  if (id) {
-    const { data } = await sb.from('lancamentos').select('*').eq('id',id).single();
-    if (data) {
-      document.getElementById('l-ds').value = data.descricao||'';
-      document.getElementById('l-tp').value = data.tipo||'receita';
-      document.getElementById('l-cat').value = data.categoria||'Vendas';
-      document.getElementById('l-vl').value = data.valor||'';
-      document.getElementById('l-dt').value = data.data||hj();
-      document.getElementById('l-st').value = data.status||'confirmado';
-      document.getElementById('l-mt').value = data.metodo||'Dinheiro';
-      document.getElementById('l-ob').value = data.observacoes||'';
+async function openLan(id=null){
+  editId.lan=id;
+  document.getElementById('ml-t').textContent=id?'Editar lançamento':'Novo lançamento';
+  document.getElementById('a-mlan').innerHTML='';
+  ['l-ds','l-ob'].forEach(fid=>{const e=document.getElementById(fid);if(e)e.value='';});
+  document.getElementById('l-vl').value='';
+  document.getElementById('l-dt').value=hj();
+  document.getElementById('l-tp').value='receita';
+  document.getElementById('l-st').value='confirmado';
+  if(id){
+    const {data}=await sb.from('lancamentos').select('*').eq('id',id).single();
+    if(data){
+      document.getElementById('l-ds').value=data.descricao||'';
+      document.getElementById('l-tp').value=data.tipo||'receita';
+      document.getElementById('l-cat').value=data.categoria||'Vendas';
+      document.getElementById('l-vl').value=data.valor||'';
+      document.getElementById('l-dt').value=data.data||hj();
+      document.getElementById('l-st').value=data.status||'confirmado';
+      document.getElementById('l-mt').value=data.metodo||'Dinheiro';
+      document.getElementById('l-ob').value=data.observacoes||'';
     }
   }
   abrirM('lan');
 }
-
-async function salvarLan() {
-  const ds = document.getElementById('l-ds').value.trim();
-  if (!ds) { alrt('mlan','Informe a descrição.','d'); return; }
-  setLoading('btn-lan', true);
-  try {
-    const payload = { descricao: ds, tipo: document.getElementById('l-tp').value, categoria: document.getElementById('l-cat').value, valor: parseFloat(document.getElementById('l-vl').value)||0, data: document.getElementById('l-dt').value||hj(), status: document.getElementById('l-st').value, metodo: document.getElementById('l-mt').value, observacoes: document.getElementById('l-ob').value.trim() };
-    if (editId.lan) { await dbUpdate('lancamentos', editId.lan, payload); }
-    else { await dbInsert('lancamentos', { ...payload, workspace_id: wsId() }); }
-    fecharM('lan'); await rFin(); alrt('fin','Lançamento salvo.','s');
-  } catch(e) { alrt('mlan','Erro: '+e.message,'d'); }
-  setLoading('btn-lan', false);
+async function salvarLan(){
+  const ds=document.getElementById('l-ds').value.trim();
+  if(!ds){alrt('mlan','Informe a descrição.','d');return;}
+  setLoading('btn-lan',true);
+  try{
+    const payload={descricao:ds,tipo:document.getElementById('l-tp').value,categoria:document.getElementById('l-cat').value,valor:parseFloat(document.getElementById('l-vl').value)||0,data:document.getElementById('l-dt').value||hj(),status:document.getElementById('l-st').value,metodo:document.getElementById('l-mt').value,observacoes:document.getElementById('l-ob').value.trim()};
+    if(editId.lan) await dbUpdate('lancamentos',editId.lan,payload);
+    else await dbInsert('lancamentos',{...payload,workspace_id:wsId()});
+    fecharM('lan');await rFin();alrt('fin','Lançamento salvo.','s');
+  }catch(e){alrt('mlan','Erro: '+e.message,'d');}
+  setLoading('btn-lan',false);
 }
 
-// ── CONTAS ───────────────────────────────────────────────────
-async function rCR() {
-  if (!wsId()) return;
-  const hjS = hj(), mS = mesAtual();
-  try {
+// ── CONTAS A RECEBER ─────────────────────────────────────────
+async function rCR(){
+  const hjS=hj(),mS=mes();
+  try{
     let l;
-    if (_isOnline) {
-      const { data } = await sb.from('contas_receber').select('*,clientes(nome)').eq('workspace_id', wsId()).order('vencimento');
-      l = data || [];
-      await idbClear('contas_receber');
-      for (const r of l) await idbPut('contas_receber', r);
-    } else {
-      l = (await idbGetAll('contas_receber')).filter(r => r.workspace_id === wsId());
-      l.sort((a,b) => (a.vencimento||'').localeCompare(b.vencimento||''));
-      // Enriquece com nome do cliente do cache local
-      const clis = await idbGetAll('clientes');
-      l = l.map(r => ({ ...r, clientes: clis.find(c => c.id === r.cliente_id) || null }));
-    }
-    const ab = l.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor),0);
-    const ve = l.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor),0);
-    const rm = l.filter(c=>c.status==='recebido'&&(c.recebido_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor),0);
-    document.getElementById('cr-ab').textContent = R(ab);
-    document.getElementById('cr-ve').textContent = R(ve);
-    document.getElementById('cr-rm').textContent = R(rm);
-    const tb = document.getElementById('tb-cr');
-    if (!l.length) { tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a receber.</td></tr>'; return; }
-    tb.innerHTML = l.map(c => {
-      const venc = c.status==='aberto' && c.vencimento < hjS;
-      const sc = c.status==='recebido'?'bs':venc?'bd':'bw';
-      const st = c.status==='recebido'?'Recebido':venc?'Vencido':'Em aberto';
-      const cat1 = c.categoria || 'Vendas';
-      return `<tr><td>${c.descricao}</td><td>${c.clientes?.nome||'—'}</td><td style="color:${venc?'var(--red-txt)':'inherit'}">${c.vencimento||'—'}</td><td>${R(c.valor)}</td><td><span class="badge ${sc}">${st}</span></td><td><div class="tda">${c.status==='aberto'?'<button class="btn sm bsu" onclick="receberConta(\''+c.id+'\','+c.valor+',\''+cat1+'\')">' + '<i class="ti ti-check"></i></button>':''}<button class="btn sm" onclick="openConta('cr','${c.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluir('contas_receber','${c.id}','cr')"><i class="ti ti-trash"></i></button></div></td></tr>`;
+    if(_isOnline){const{data}=await sb.from('contas_receber').select('*,clientes(nome)').eq('workspace_id',wsId()).order('vencimento');l=data||[];await idbClear('contas_receber');for(const r of l)await idbPut('contas_receber',r);}
+    else{l=(await idbGetAll('contas_receber')).filter(r=>r.workspace_id===wsId());l.sort((a,b)=>(a.vencimento||'').localeCompare(b.vencimento||''));const cs=await idbGetAll('clientes');l=l.map(r=>({...r,clientes:cs.find(c=>c.id===r.cliente_id)||null}));}
+    const ab=l.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor||0),0);
+    const ve=l.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor||0),0);
+    const rm=l.filter(c=>c.status==='recebido'&&(c.recebido_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor||0),0);
+    document.getElementById('cr-ab').textContent=R(ab);
+    document.getElementById('cr-ve').textContent=R(ve);
+    document.getElementById('cr-rm').textContent=R(rm);
+    const tb=document.getElementById('tb-cr');
+    if(!l.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a receber.</td></tr>';return;}
+    tb.innerHTML=l.map(c=>{
+      const venc=c.status==='aberto'&&c.vencimento<hjS;
+      const sc=c.status==='recebido'?'bs':venc?'bd':'bw';
+      const st=c.status==='recebido'?'Recebido':venc?'Vencido':'Em aberto';
+      return`<tr><td>${c.descricao}</td><td>${c.clientes?.nome||'—'}</td><td style="color:${venc?'var(--red-txt)':'inherit'}">${c.vencimento||'—'}</td><td>${R(c.valor)}</td><td><span class="badge ${sc}">${st}</span></td>
+        <td><div class="tda">
+          ${c.status==='aberto'?`<button class="btn sm bsu" onclick="receberConta('${c.id}',${c.valor},'${c.categoria||'Vendas'}')"><i class="ti ti-check"></i></button>`:''}
+          <button class="btn sm" onclick="openConta('cr','${c.id}')"><i class="ti ti-edit"></i></button>
+          <button class="btn sm bda" onclick="excluir('contas_receber','${c.id}','cr')"><i class="ti ti-trash"></i></button>
+        </div></td></tr>`;
     }).join('');
-  } catch(e) { document.getElementById('tb-cr').innerHTML='<tr><td colspan="6" class="emp">Erro ao carregar.</td></tr>'; }
+  }catch(e){document.getElementById('tb-cr').innerHTML=`<tr><td colspan="6" class="emp">Erro: ${e.message}</td></tr>`;}
 }
 
-async function rCP() {
-  if (!wsId()) return;
-  const hjS = hj(), mS = mesAtual();
-  try {
+async function rCP(){
+  const hjS=hj(),mS=mes();
+  try{
     let l;
-    if (_isOnline) {
-      const { data } = await sb.from('contas_pagar').select('*,fornecedores(nome)').eq('workspace_id', wsId()).order('vencimento');
-      l = data || [];
-      await idbClear('contas_pagar');
-      for (const r of l) await idbPut('contas_pagar', r);
-    } else {
-      l = (await idbGetAll('contas_pagar')).filter(r => r.workspace_id === wsId());
-      l.sort((a,b) => (a.vencimento||'').localeCompare(b.vencimento||''));
-      const forns = await idbGetAll('fornecedores');
-      l = l.map(r => ({ ...r, fornecedores: forns.find(f => f.id === r.fornecedor_id) || null }));
-    }
-    const ab = l.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor),0);
-    const ve = l.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor),0);
-    const pm = l.filter(c=>c.status==='pago'&&(c.pago_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor),0);
-    document.getElementById('cp-ab').textContent = R(ab);
-    document.getElementById('cp-ve').textContent = R(ve);
-    document.getElementById('cp-pm').textContent = R(pm);
-    const tb = document.getElementById('tb-cp');
-    if (!l.length) { tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a pagar.</td></tr>'; return; }
-    tb.innerHTML = l.map(c => {
-      const venc = c.status==='aberto' && c.vencimento < hjS;
-      const sc = c.status==='pago'?'bs':venc?'bd':'bw';
-      const st = c.status==='pago'?'Pago':venc?'Vencido':'Em aberto';
-      const cat2 = c.categoria || 'Fornecedores';
-      return `<tr><td>${c.descricao}</td><td>${c.fornecedores?.nome||'—'}</td><td style="color:${venc?'var(--red-txt)':'inherit'}">${c.vencimento||'—'}</td><td>${R(c.valor)}</td><td><span class="badge ${sc}">${st}</span></td><td><div class="tda">${c.status==='aberto'?'<button class="btn sm bp" onclick="pagarConta(\''+c.id+'\','+c.valor+',\''+cat2+'\')">' + '<i class="ti ti-check"></i></button>':''}<button class="btn sm" onclick="openConta('cp','${c.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluir('contas_pagar','${c.id}','cp')"><i class="ti ti-trash"></i></button></div></td></tr>`;
+    if(_isOnline){const{data}=await sb.from('contas_pagar').select('*,fornecedores(nome)').eq('workspace_id',wsId()).order('vencimento');l=data||[];await idbClear('contas_pagar');for(const r of l)await idbPut('contas_pagar',r);}
+    else{l=(await idbGetAll('contas_pagar')).filter(r=>r.workspace_id===wsId());l.sort((a,b)=>(a.vencimento||'').localeCompare(b.vencimento||''));const fs=await idbGetAll('fornecedores');l=l.map(r=>({...r,fornecedores:fs.find(f=>f.id===r.fornecedor_id)||null}));}
+    const ab=l.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor||0),0);
+    const ve=l.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor||0),0);
+    const pm=l.filter(c=>c.status==='pago'&&(c.pago_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor||0),0);
+    document.getElementById('cp-ab').textContent=R(ab);
+    document.getElementById('cp-ve').textContent=R(ve);
+    document.getElementById('cp-pm').textContent=R(pm);
+    const tb=document.getElementById('tb-cp');
+    if(!l.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a pagar.</td></tr>';return;}
+    tb.innerHTML=l.map(c=>{
+      const venc=c.status==='aberto'&&c.vencimento<hjS;
+      const sc=c.status==='pago'?'bs':venc?'bd':'bw';
+      const st=c.status==='pago'?'Pago':venc?'Vencido':'Em aberto';
+      return`<tr><td>${c.descricao}</td><td>${c.fornecedores?.nome||'—'}</td><td style="color:${venc?'var(--red-txt)':'inherit'}">${c.vencimento||'—'}</td><td>${R(c.valor)}</td><td><span class="badge ${sc}">${st}</span></td>
+        <td><div class="tda">
+          ${c.status==='aberto'?`<button class="btn sm bp" onclick="pagarConta('${c.id}',${c.valor},'${c.categoria||'Fornecedores'}')"><i class="ti ti-check"></i></button>`:''}
+          <button class="btn sm" onclick="openConta('cp','${c.id}')"><i class="ti ti-edit"></i></button>
+          <button class="btn sm bda" onclick="excluir('contas_pagar','${c.id}','cp')"><i class="ti ti-trash"></i></button>
+        </div></td></tr>`;
     }).join('');
-  } catch(e) { document.getElementById('tb-cp').innerHTML='<tr><td colspan="6" class="emp">Erro ao carregar.</td></tr>'; }
+  }catch(e){document.getElementById('tb-cp').innerHTML=`<tr><td colspan="6" class="emp">Erro: ${e.message}</td></tr>`;}
 }
 
-async function openConta(tipo, id = null) {
-  tipoC = tipo; editId.conta = id;
-  document.getElementById('mct-t').textContent = tipo==='cr' ? (id?'Editar conta a receber':'Nova conta a receber') : (id?'Editar conta a pagar':'Nova conta a pagar');
-  document.getElementById('ct-ent-lbl').textContent = tipo==='cr' ? 'Cliente' : 'Fornecedor';
-  document.getElementById('a-mconta').innerHTML = '';
-  const sel = document.getElementById('ct-ent');
-  sel.innerHTML = '<option value="">— Selecionar —</option>';
-  (tipo==='cr' ? _clientes : _fornecedores).forEach(x => { sel.innerHTML += `<option value="${x.id}">${x.nome}</option>`; });
-  ['ds','vc','vl','ob'].forEach(k => { const e=document.getElementById('ct-'+k); if(e) e.value=''; });
-  document.getElementById('ct-vc').value = hj();
-  if (id) {
-    const tbl = tipo==='cr'?'contas_receber':'contas_pagar';
-    const { data } = await sb.from(tbl).select('*').eq('id',id).single();
-    if (data) {
-      document.getElementById('ct-ds').value = data.descricao||'';
-      document.getElementById('ct-ent').value = data.cliente_id||data.fornecedor_id||'';
-      document.getElementById('ct-vc').value = data.vencimento||hj();
-      document.getElementById('ct-vl').value = data.valor||'';
-      document.getElementById('ct-cat').value = data.categoria||'Venda';
-      document.getElementById('ct-ob').value = data.observacoes||'';
+async function openConta(tipo,id=null){
+  tipoC=tipo; editId.conta=id;
+  document.getElementById('mct-t').textContent=tipo==='cr'?(id?'Editar conta a receber':'Nova conta a receber'):(id?'Editar conta a pagar':'Nova conta a pagar');
+  document.getElementById('ct-ent-lbl').textContent=tipo==='cr'?'Cliente':'Fornecedor';
+  document.getElementById('a-mconta').innerHTML='';
+  const sel=document.getElementById('ct-ent');
+  sel.innerHTML='<option value="">— Selecionar —</option>';
+  (tipo==='cr'?_clientes:_fornecedores).forEach(x=>{sel.innerHTML+=`<option value="${x.id}">${x.nome}</option>`;});
+  ['ct-ds','ct-vc','ct-vl','ct-ob'].forEach(fid=>{const e=document.getElementById(fid);if(e)e.value='';});
+  document.getElementById('ct-vc').value=hj();
+  if(id){
+    const tbl=tipo==='cr'?'contas_receber':'contas_pagar';
+    const{data}=await sb.from(tbl).select('*').eq('id',id).single();
+    if(data){
+      document.getElementById('ct-ds').value=data.descricao||'';
+      document.getElementById('ct-ent').value=data.cliente_id||data.fornecedor_id||'';
+      document.getElementById('ct-vc').value=data.vencimento||hj();
+      document.getElementById('ct-vl').value=data.valor||'';
+      document.getElementById('ct-cat').value=data.categoria||'Venda';
+      document.getElementById('ct-ob').value=data.observacoes||'';
     }
   }
   abrirM('conta');
 }
-
-async function salvarConta() {
-  const ds = document.getElementById('ct-ds').value.trim();
-  if (!ds) return;
-  setLoading('btn-conta', true);
-  try {
-    const entId = document.getElementById('ct-ent').value||null;
-    const payload = { descricao: ds, [tipoC==='cr'?'cliente_id':'fornecedor_id']: entId, vencimento: document.getElementById('ct-vc').value||null, valor: parseFloat(document.getElementById('ct-vl').value)||0, status:'aberto', categoria: document.getElementById('ct-cat').value, observacoes: document.getElementById('ct-ob').value.trim() };
-    const tbl = tipoC==='cr'?'contas_receber':'contas_pagar';
-    if (editId.conta) { await dbUpdate(tbl, editId.conta, payload); }
-    else { await dbInsert(tbl, { ...payload, workspace_id: wsId() }); }
-    fecharM('conta'); tipoC==='cr' ? await rCR() : await rCP(); alrt(tipoC,'Conta salva.','s'); updBadges();
-  } catch(e) { alrt('mconta','Erro: '+e.message,'d'); }
-  setLoading('btn-conta', false);
+async function salvarConta(){
+  const ds=document.getElementById('ct-ds').value.trim();if(!ds)return;
+  setLoading('btn-conta',true);
+  try{
+    const entId=document.getElementById('ct-ent').value||null;
+    const payload={descricao:ds,[tipoC==='cr'?'cliente_id':'fornecedor_id']:entId,vencimento:document.getElementById('ct-vc').value||null,valor:parseFloat(document.getElementById('ct-vl').value)||0,status:'aberto',categoria:document.getElementById('ct-cat').value,observacoes:document.getElementById('ct-ob').value.trim()};
+    const tbl=tipoC==='cr'?'contas_receber':'contas_pagar';
+    if(editId.conta) await dbUpdate(tbl,editId.conta,payload);
+    else await dbInsert(tbl,{...payload,workspace_id:wsId()});
+    fecharM('conta'); tipoC==='cr'?await rCR():await rCP(); alrt(tipoC,'Conta salva.','s'); updBadges();
+  }catch(e){alrt('mconta','Erro: '+e.message,'d');}
+  setLoading('btn-conta',false);
 }
-
-async function receberConta(id, valor, cat) {
-  if (!confirm('Marcar como recebido?')) return;
-  await dbUpdate('contas_receber', id, { status:'recebido', recebido_em: hj() });
-  await dbInsert('lancamentos', { workspace_id: wsId(), descricao:'Recebimento de conta', tipo:'receita', categoria: cat, valor, data: hj(), status:'confirmado', metodo:'—' });
+async function receberConta(id,valor,cat){
+  if(!confirm('Marcar como recebido?'))return;
+  await dbUpdate('contas_receber',id,{status:'recebido',recebido_em:hj()});
+  await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Recebimento de conta',tipo:'receita',categoria:cat,valor,data:hj(),status:'confirmado',metodo:'—'});
   await rCR(); alrt('cr','Marcado como recebido!','s'); updBadges();
 }
-
-async function pagarConta(id, valor, cat) {
-  if (!confirm('Marcar como pago?')) return;
-  await dbUpdate('contas_pagar', id, { status:'pago', pago_em: hj() });
-  await dbInsert('lancamentos', { workspace_id: wsId(), descricao:'Pagamento de conta', tipo:'despesa', categoria: cat, valor, data: hj(), status:'confirmado', metodo:'—' });
+async function pagarConta(id,valor,cat){
+  if(!confirm('Marcar como pago?'))return;
+  await dbUpdate('contas_pagar',id,{status:'pago',pago_em:hj()});
+  await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Pagamento de conta',tipo:'despesa',categoria:cat,valor,data:hj(),status:'confirmado',metodo:'—'});
   await rCP(); alrt('cp','Marcado como pago!','s'); updBadges();
 }
 
-// ── PAGAMENTOS ───────────────────────────────────────────────
-const METS = [
-  {nm:'Dinheiro',ic:'ti-cash',ok:true},{nm:'PIX',ic:'ti-qrcode',ok:true},
-  {nm:'Cartão débito',ic:'ti-credit-card',ok:true},{nm:'Cartão crédito',ic:'ti-credit-card',ok:true},
-  {nm:'Boleto',ic:'ti-barcode',ok:false},{nm:'Link de pagamento',ic:'ti-link',ok:false},
-  {nm:'Transferência',ic:'ti-building-bank',ok:true},{nm:'A prazo',ic:'ti-calendar-due',ok:true},
-];
-async function rPgto() {
-  document.getElementById('pgto-met').innerHTML = METS.map(m=>`<div class="mc ${m.ok?'ok':''}">
-    <div class="mc-top"><i class="ti ${m.ic}" style="font-size:15px;color:var(--${m.ok?'green':'txt2'}-txt)" aria-hidden="true"></i>
-    <span style="font-size:12px;font-weight:600">${m.nm}</span>
-    <span class="badge ${m.ok?'bs':'bg'}" style="margin-left:auto">${m.ok?'Ativo':'Inativo'}</span></div>
-  </div>`).join('');
-  try {
-    const data = _isOnline
-      ? (await sb.from('lancamentos').select('data,descricao,metodo,valor').eq('workspace_id',wsId()).eq('tipo','receita').order('data',{ascending:false}).limit(20)).data
-      : (await idbGetAll('lancamentos')).filter(r=>r.workspace_id===wsId()&&r.tipo==='receita').sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,20);
-    const tb = document.getElementById('tb-tr');
-    if (!(data||[]).length) { tb.innerHTML='<tr><td colspan="5" class="emp">Nenhuma transação.</td></tr>'; return; }
-    tb.innerHTML = (data||[]).map(t=>`<tr><td>${t.data}</td><td>${t.descricao}</td><td>${t.metodo||'—'}</td><td style="font-weight:600;color:var(--green-txt)">${R(t.valor)}</td><td><span class="badge bs">confirmada</span></td></tr>`).join('');
-  } catch(e) {}
+// ── PAGAMENTOS ────────────────────────────────────────────────
+const METS=[{nm:'Dinheiro',ic:'ti-cash',ok:true},{nm:'PIX',ic:'ti-qrcode',ok:true},{nm:'Cartão débito',ic:'ti-credit-card',ok:true},{nm:'Cartão crédito',ic:'ti-credit-card',ok:true},{nm:'Boleto',ic:'ti-barcode',ok:false},{nm:'Link pag.',ic:'ti-link',ok:false},{nm:'Transferência',ic:'ti-building-bank',ok:true},{nm:'A prazo',ic:'ti-calendar-due',ok:true}];
+async function rPgto(){
+  document.getElementById('pgto-met').innerHTML=METS.map(m=>`<div class="mc ${m.ok?'ok':''}"><div class="mc-top"><i class="ti ${m.ic}" style="font-size:15px;color:var(--${m.ok?'green':'txt2'}-txt)"></i><span style="font-size:12px;font-weight:600">${m.nm}</span><span class="badge ${m.ok?'bs':'bg'}" style="margin-left:auto">${m.ok?'Ativo':'Inativo'}</span></div></div>`).join('');
+  try{
+    let data=[];
+    if(_isOnline){const res=await sb.from('lancamentos').select('data,descricao,metodo,valor').eq('workspace_id',wsId()).eq('tipo','receita').order('data',{ascending:false}).limit(20);data=res.data||[];}
+    else{data=(await idbGetAll('lancamentos')).filter(r=>r.workspace_id===wsId()&&r.tipo==='receita').sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,20);}
+    const tb=document.getElementById('tb-tr');
+    tb.innerHTML=data.length?data.map(t=>`<tr><td>${t.data}</td><td>${t.descricao}</td><td>${t.metodo||'—'}</td><td style="font-weight:600;color:var(--green-txt)">${R(t.valor)}</td><td><span class="badge bs">confirmada</span></td></tr>`).join(''):'<tr><td colspan="5" class="emp">Nenhuma transação.</td></tr>';
+  }catch(e){}
 }
 
-// ── ESTOQUE ──────────────────────────────────────────────────
-async function rEst() {
-  if (!wsId()) return;
-  try {
+// ── ESTOQUE ───────────────────────────────────────────────────
+async function rEst(){
+  try{
     let l;
-    if (_isOnline) {
-      const { data } = await sb.from('produtos').select('id,nome,codigo,estoque,estoque_min,estoque_max,unidade').eq('workspace_id',wsId()).order('estoque');
-      l = data||[];
-    } else {
-      l = (await idbGetAll('produtos')).filter(r => r.workspace_id === wsId());
-      l.sort((a,b) => (a.estoque||0) - (b.estoque||0));
-    }
-    document.getElementById('est-tot').textContent = l.length;
-    document.getElementById('est-bx').textContent = l.filter(p=>p.estoque>0&&p.estoque<=p.estoque_min).length;
-    document.getElementById('est-zer').textContent = l.filter(p=>p.estoque<=0).length;
-    const tb = document.getElementById('tb-est');
-    if (!l.length) { tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum produto cadastrado.</td></tr>'; return; }
-    tb.innerHTML = l.map(p => {
-      const sit = p.estoque<=0?{lbl:'Sem estoque',cl:'bd'}:p.estoque<=p.estoque_min?{lbl:'Estoque baixo',cl:'bw'}:{lbl:'Normal',cl:'bs'};
-      return `<tr><td>${p.nome}</td><td><small style="color:var(--txt2)">${p.codigo||'—'}</small></td><td style="font-weight:700">${p.estoque}</td><td>${p.unidade}</td><td><span class="badge ${sit.cl}">${sit.lbl}</span></td><td><button class="btn sm bp" onclick="openAdj('${p.id}',this.dataset.nome,${p.estoque})" data-nome="${p.nome.replace(/"/g,'&quot;')}"><i class="ti ti-adjustments"></i>Ajustar</button></td></tr>`;
+    if(_isOnline){const{data}=await sb.from('produtos').select('id,nome,codigo,estoque,estoque_min,estoque_max,unidade').eq('workspace_id',wsId()).order('estoque');l=data||[];}
+    else{l=(await idbGetAll('produtos')).filter(r=>r.workspace_id===wsId());l.sort((a,b)=>(a.estoque||0)-(b.estoque||0));}
+    document.getElementById('est-tot').textContent=l.length;
+    document.getElementById('est-bx').textContent=l.filter(p=>p.estoque>0&&p.estoque<=(p.estoque_min||5)).length;
+    document.getElementById('est-zer').textContent=l.filter(p=>p.estoque<=0).length;
+    const tb=document.getElementById('tb-est');
+    if(!l.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum produto.</td></tr>';return;}
+    tb.innerHTML=l.map(p=>{
+      const sit=p.estoque<=0?{lbl:'Sem estoque',cl:'bd'}:p.estoque<=(p.estoque_min||5)?{lbl:'Estoque baixo',cl:'bw'}:{lbl:'Normal',cl:'bs'};
+      return`<tr><td>${p.nome}</td><td><small style="color:var(--txt2)">${p.codigo||'—'}</small></td><td style="font-weight:700">${p.estoque}</td><td>${p.unidade||'un'}</td><td><span class="badge ${sit.cl}">${sit.lbl}</span></td><td><button class="btn sm bp" onclick="openAdj('${p.id}','${p.nome.replace(/'/g,"\\'")}',${p.estoque})"><i class="ti ti-adjustments"></i>Ajustar</button></td></tr>`;
     }).join('');
-  } catch(e) { document.getElementById('tb-est').innerHTML='<tr><td colspan="6" class="emp">Erro ao carregar.</td></tr>'; }
+  }catch(e){document.getElementById('tb-est').innerHTML=`<tr><td colspan="6" class="emp">Erro: ${e.message}</td></tr>`;}
 }
-
-function openAdj(id, nome, est) {
-  adjId = id;
-  document.getElementById('adj-nm').value = nome;
-  document.getElementById('adj-at').value = est;
-  document.getElementById('adj-qt').value = 0;
-  document.getElementById('adj-mo').value = '';
-  document.getElementById('adj-op').value = 'add';
+function openAdj(id,nome,est){
+  adjId=id;
+  document.getElementById('adj-nm').value=nome;
+  document.getElementById('adj-at').value=est;
+  document.getElementById('adj-qt').value=0;
+  document.getElementById('adj-mo').value='';
+  document.getElementById('adj-op').value='add';
   abrirM('adj');
 }
-
-async function confirmarAdj() {
-  setLoading('btn-adj', true, 'Confirmar');
-  try {
-    const op = document.getElementById('adj-op').value;
-    const qt = parseInt(document.getElementById('adj-qt').value)||0;
-    const mo = document.getElementById('adj-mo').value.trim();
-    const ant = parseInt(document.getElementById('adj-at').value)||0;
-    let dep;
-    if (op==='add') dep = ant + qt;
-    else if (op==='sub') dep = Math.max(0, ant - qt);
-    else dep = qt;
-    await dbUpdate('produtos', adjId, { estoque: dep });
-    await dbInsert('mov_estoque', { workspace_id: wsId(), produto_id: adjId, nome_produto: document.getElementById('adj-nm').value, operacao: op, quantidade: qt, estoque_antes: ant, estoque_depois: dep, motivo: mo, data: hj() });
-    fecharM('adj'); await rEst(); alrt('est','Estoque ajustado!','s'); updBadges();
-  } catch(e) { alrt('est','Erro: '+e.message,'d'); }
-  setLoading('btn-adj', false, 'Confirmar');
+async function confirmarAdj(){
+  setLoading('btn-adj',true,'Confirmar');
+  try{
+    const op=document.getElementById('adj-op').value;
+    const qt=parseInt(document.getElementById('adj-qt').value)||0;
+    const mo=document.getElementById('adj-mo').value.trim();
+    const ant=parseInt(document.getElementById('adj-at').value)||0;
+    const dep=op==='add'?ant+qt:op==='sub'?Math.max(0,ant-qt):qt;
+    await dbUpdate('produtos',adjId,{estoque:dep});
+    await dbInsert('mov_estoque',{workspace_id:wsId(),produto_id:adjId,nome_produto:document.getElementById('adj-nm').value,operacao:op,quantidade:qt,estoque_antes:ant,estoque_depois:dep,motivo:mo,data:hj()});
+    fecharM('adj');await rEst();alrt('est','Estoque ajustado!','s');updBadges();
+  }catch(e){alrt('est','Erro: '+e.message,'d');}
+  setLoading('btn-adj',false,'Confirmar');
 }
 
-// ── SAAS ─────────────────────────────────────────────────────
-const PLANOS = [
-  {id:'free',nm:'Free',pr:0,feats:['50 produtos','30 clientes','1 usuário','Funcionalidades básicas'],lim:{p:50,c:30,u:1}},
-  {id:'pro',nm:'Pro',pr:99,feats:['Ilimitado produtos','Ilimitado clientes','5 usuários','Financeiro completo','Controle de estoque'],lim:{p:99999,c:99999,u:5}},
-  {id:'enterprise',nm:'Enterprise',pr:299,feats:['Tudo do Pro','Usuários ilimitados','API & webhooks','White-label','Suporte prioritário'],lim:{p:99999,c:99999,u:99999}},
+// ── SAAS ──────────────────────────────────────────────────────
+const PLANOS=[
+  {id:'free',nm:'Free',pr:0,feats:['50 produtos','30 clientes','1 usuário'],lim:{p:50,c:30,u:1}},
+  {id:'pro',nm:'Pro',pr:99,feats:['Ilimitado','5 usuários','Financeiro completo'],lim:{p:99999,c:99999,u:5}},
+  {id:'enterprise',nm:'Enterprise',pr:299,feats:['Tudo do Pro','Usuários ilimitados','API'],lim:{p:99999,c:99999,u:99999}},
 ];
-
-async function rSaas() {
-  const plano = PLANOS.find(p=>p.id===WS.plano)||PLANOS[1];
-  let pCount=0, cCount=0, uCount=0;
-  try {
-    if (_isOnline) {
-      const [r1,r2,r3] = await Promise.all([
+async function rSaas(){
+  const plano=PLANOS.find(p=>p.id===WS.plano)||PLANOS[1];
+  let pC=0,cC=0,uC=0;
+  try{
+    if(_isOnline){
+      const[r1,r2,r3]=await Promise.all([
         sb.from('produtos').select('id',{count:'exact'}).eq('workspace_id',wsId()),
         sb.from('clientes').select('id',{count:'exact'}).eq('workspace_id',wsId()),
         sb.from('usuarios').select('id',{count:'exact'}).eq('workspace_id',wsId()),
       ]);
-      pCount=r1.count||0; cCount=r2.count||0; uCount=r3.count||0;
-    } else {
-      const wid=wsId();
-      [pCount,cCount,uCount] = await Promise.all([
-        idbGetAll('produtos').then(d=>d.filter(r=>r.workspace_id===wid).length),
-        idbGetAll('clientes').then(d=>d.filter(r=>r.workspace_id===wid).length),
-        Promise.resolve(0),
-      ]);
+      pC=r1.count||0;cC=r2.count||0;uC=r3.count||0;
     }
-  } catch(e) {}
-  const uso = [
-    {lbl:'Produtos',at:pCount,mx:plano.lim.p,ic:'ti-package'},
-    {lbl:'Clientes',at:cCount,mx:plano.lim.c,ic:'ti-users'},
-    {lbl:'Usuários',at:uCount,mx:plano.lim.u,ic:'ti-user-check'},
-  ];
-  document.getElementById('saas-uso').innerHTML = uso.map(u=>{
-    const pct = u.mx>=99999?5:Math.min(100,Math.round(u.at/u.mx*100));
-    const fc = pct>90?'d':pct>70?'w':'';
-    return `<div class="sc"><div class="sl"><i class="ti ${u.ic}"></i>${u.lbl}</div><div class="sv">${u.at}${u.mx<99999?`<span style="font-size:12px;font-weight:400;color:var(--txt2)"> / ${u.mx}</span>`:''}</div>${u.mx<99999?`<div class="pb"><div class="pf ${fc}" style="width:${pct}%"></div></div>`:''}</div>`;
+  }catch(e){}
+  document.getElementById('saas-uso').innerHTML=[
+    {lbl:'Produtos',at:pC,mx:plano.lim.p,ic:'ti-package'},
+    {lbl:'Clientes',at:cC,mx:plano.lim.c,ic:'ti-users'},
+    {lbl:'Usuários',at:uC,mx:plano.lim.u,ic:'ti-user-check'},
+  ].map(u=>{
+    const pct=u.mx>=99999?5:Math.min(100,Math.round(u.at/u.mx*100));
+    const fc=pct>90?'d':pct>70?'w':'';
+    return`<div class="sc"><div class="sl"><i class="ti ${u.ic}"></i>${u.lbl}</div><div class="sv">${u.at}${u.mx<99999?`<span style="font-size:12px;font-weight:400;color:var(--txt2)"> / ${u.mx}</span>`:''}</div>${u.mx<99999?`<div class="pb"><div class="pf ${fc}" style="width:${pct}%"></div></div>`:''}</div>`;
   }).join('');
-  document.getElementById('saas-planos').innerHTML = PLANOS.map(pl=>`<div class="plan-c ${pl.id===WS.plano?'cur':''}" onclick="selecionarPlano('${pl.id}')">
+  document.getElementById('saas-planos').innerHTML=PLANOS.map(pl=>`<div class="plan-c ${pl.id===WS.plano?'cur':''}" onclick="selecionarPlano('${pl.id}')">
     ${pl.id===WS.plano?'<span class="badge bi" style="margin-bottom:7px;display:inline-block">Plano atual</span><br>':''}
     <div class="plan-nm">${pl.nm}</div>
     <div class="plan-pr">${pl.pr>0?'R$ '+pl.pr:'Grátis'}<span>${pl.pr>0?'/mês':''}</span></div>
     <div class="plan-ft">${pl.feats.map(f=>`<div>✓ ${f}</div>`).join('')}</div>
-    ${pl.id!==WS.plano?`<button class="btn bp sm" style="margin-top:10px;width:100%" onclick="event.stopPropagation();selecionarPlano('${pl.id}')">Selecionar plano</button>`:''}
+    ${pl.id!==WS.plano?`<button class="btn bp sm" style="margin-top:10px;width:100%" onclick="event.stopPropagation();selecionarPlano('${pl.id}')">Selecionar</button>`:''}
   </div>`).join('');
-  const { data: users } = await sb.from('usuarios').select('*').eq('workspace_id',wsId()).order('created_at');
-  document.getElementById('saas-users').innerHTML = `<table style="font-size:12px"><thead><tr><th>Usuário</th><th style="width:175px">E-mail</th><th style="width:110px">Perfil</th><th style="width:80px">Status</th><th style="width:50px"></th></tr></thead><tbody>${
-    (users||[]).map(u=>`<tr><td>${u.nome}</td><td>${u.email}</td><td>${u.role}</td><td><span class="badge ${u.status==='ativo'?'bs':'bw'}">${u.status}</span></td><td>${u.auth_id?'':'<button class="btn sm bda" onclick="excluirUser(\''+u.id+'\')"><i class="ti ti-trash"></i></button>'}</td></tr>`).join('')
+  const{data:users}=await sb.from('usuarios').select('*').eq('workspace_id',wsId()).order('created_at');
+  document.getElementById('saas-users').innerHTML=`<table style="font-size:12px"><thead><tr><th>Usuário</th><th style="width:175px">E-mail</th><th style="width:110px">Perfil</th><th style="width:80px">Status</th><th style="width:50px"></th></tr></thead><tbody>${
+    (users||[]).map(u=>`<tr><td>${u.nome}</td><td>${u.email}</td><td>${u.role}</td><td><span class="badge ${u.status==='ativo'?'bs':'bw'}">${u.status}</span></td><td>${!u.auth_id?`<button class="btn sm bda" onclick="excluirUser('${u.id}')"><i class="ti ti-trash"></i></button>`:''}</td></tr>`).join('')
   }</tbody></table>`;
-  document.getElementById('ws-nome-i').value = WS.nome||'';
-  document.getElementById('ws-cnpj-i').value = WS.cnpj||'';
-  document.getElementById('ws-tel-i').value = WS.telefone||'';
-  document.getElementById('ws-email-i').value = WS.email||'';
-  document.getElementById('ws-cid-i').value = WS.cidade||'';
-  document.getElementById('ws-uf-i').value = WS.uf||'';
+  document.getElementById('ws-nome-i').value=WS.nome||'';
+  document.getElementById('ws-cnpj-i').value=WS.cnpj||'';
+  document.getElementById('ws-tel-i').value=WS.telefone||'';
+  document.getElementById('ws-email-i').value=WS.email||'';
+  document.getElementById('ws-cid-i').value=WS.cidade||'';
+  document.getElementById('ws-uf-i').value=WS.uf||'';
 }
-
-async function selecionarPlano(id) {
-  if (_isOnline) await sb.from('workspaces').update({ plano: id }).eq('id', wsId());
-  WS.plano = id;
-  const pill = document.getElementById('ws-pill');
-  pill.textContent = id.charAt(0).toUpperCase() + id.slice(1);
-  pill.className = 'plan-pill pill-' + id;
+async function selecionarPlano(id){
+  if(_isOnline) await sb.from('workspaces').update({plano:id}).eq('id',wsId());
+  WS.plano=id;
+  const pill=document.getElementById('ws-pill');
+  pill.textContent=id.charAt(0).toUpperCase()+id.slice(1);
+  pill.className='plan-pill pill-'+id;
   await rSaas();
 }
-
-async function convidarUser() {
-  const nm = document.getElementById('u-nm').value.trim();
-  const em = document.getElementById('u-em').value.trim();
-  const rl = document.getElementById('u-rl').value;
-  if (!nm||!em) { alert('Informe nome e e-mail.'); return; }
-  setLoading('btn-user', true, 'Enviar convite');
-  try {
-    if (_isOnline) { await sb.from('usuarios').insert({ workspace_id: wsId(), nome: nm, email: em, role: rl, status:'pendente' }); } else { mostrarToast('Convite será enviado quando houver conexão.','info'); }
-    fecharM('user'); await rSaas();
-  } catch(e) { alert('Erro: '+e.message); }
-  setLoading('btn-user', false, 'Enviar convite');
+async function convidarUser(){
+  const nm=document.getElementById('u-nm').value.trim();
+  const em=document.getElementById('u-em').value.trim();
+  const rl=document.getElementById('u-rl').value;
+  if(!nm||!em){alert('Informe nome e e-mail.');return;}
+  setLoading('btn-user',true,'Enviar convite');
+  try{
+    if(_isOnline) await sb.from('usuarios').insert({workspace_id:wsId(),nome:nm,email:em,role:rl,status:'pendente'});
+    fecharM('user');await rSaas();
+  }catch(e){alert('Erro: '+e.message);}
+  setLoading('btn-user',false,'Enviar convite');
 }
-
-async function excluirUser(id) {
-  if (!confirm('Remover usuário?')) return;
+async function excluirUser(id){
+  if(!confirm('Remover usuário?'))return;
   await sb.from('usuarios').delete().eq('id',id);
   await rSaas();
 }
-
-async function salvarWS() {
-  const payload = { nome: document.getElementById('ws-nome-i').value.trim()||WS.nome, cnpj: document.getElementById('ws-cnpj-i').value.trim(), telefone: document.getElementById('ws-tel-i').value.trim(), email: document.getElementById('ws-email-i').value.trim(), cidade: document.getElementById('ws-cid-i').value.trim(), uf: document.getElementById('ws-uf-i').value };
-  if (_isOnline) await sb.from('workspaces').update(payload).eq('id', wsId()); else await enfileirarSync('workspaces','update',{id:wsId(),...payload});
-  Object.assign(WS, payload);
-  document.getElementById('ws-nm').textContent = WS.nome;
-  const el = document.getElementById('a-ws'); el.textContent = '✓ Salvo!'; setTimeout(()=>{ el.textContent=''; },3000);
+async function salvarWS(){
+  const payload={nome:document.getElementById('ws-nome-i').value.trim()||WS.nome,cnpj:document.getElementById('ws-cnpj-i').value.trim(),telefone:document.getElementById('ws-tel-i').value.trim(),email:document.getElementById('ws-email-i').value.trim(),cidade:document.getElementById('ws-cid-i').value.trim(),uf:document.getElementById('ws-uf-i').value};
+  if(_isOnline) await sb.from('workspaces').update(payload).eq('id',wsId());
+  Object.assign(WS,payload);
+  document.getElementById('ws-nm').textContent=WS.nome;
+  const el=document.getElementById('a-ws');el.textContent='✓ Salvo!';setTimeout(()=>{el.textContent='';},3000);
 }
 
 // ── EXCLUSÃO GENÉRICA ─────────────────────────────────────────
-async function excluir(tabela, id, paginaAlerta) {
-  if (!confirm('Excluir este registro?')) return;
-  try {
-    await dbDeleteItem(tabela, id);
-    const reloads = { prod: rProd, cli: rCli, forn: rForn, fin: rFin, cr: rCR, cp: rCP };
-    if (reloads[paginaAlerta]) await reloads[paginaAlerta]();
-    alrt(paginaAlerta, 'Registro excluído.', 's');
+async function excluir(tabela,id,paginaAlerta){
+  if(!confirm('Excluir este registro?'))return;
+  try{
+    await dbDeleteItem(tabela,id);
+    const reloads={prod:rProd,cli:rCli,forn:rForn,fin:rFin,cr:rCR,cp:rCP};
+    if(reloads[paginaAlerta]) await reloads[paginaAlerta]();
+    alrt(paginaAlerta,'Registro excluído.','s');
     updBadges();
-  } catch(e) { alrt(paginaAlerta, 'Erro ao excluir: '+e.message, 'd'); }
+  }catch(e){alrt(paginaAlerta,'Erro ao excluir: '+e.message,'d');}
 }
 
-// ── INIT ─────────────────────────────────────────────────────
-// ── GERAÇÃO AUTOMÁTICA DE CÓDIGO ─────────────────────────────
-
-// Gera um código único baseado no nome + timestamp
-function gerarCodigoStr(prefixo, nome) {
-  // Pega as 3 primeiras letras do nome (sem acentos, maiúsculas)
-  const sigla = nome
-    .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')  // só letras e números
-    .slice(0, 3)
-    .padEnd(3, 'X');             // garante 3 chars
-  // Sufixo numérico de 4 dígitos baseado no timestamp
-  const sufixo = String(Date.now()).slice(-4);
-  return `${prefixo}${sigla}${sufixo}`;
-}
-
-// Ouve o Enter no campo nome e preenche o campo de código
-function gerarCodigo(tipo, event) {
-  if (event.key !== 'Enter') return;
-  event.preventDefault(); // não submete o form
-
-  const config = {
-    prod: { nomeId: 'p-nm', codId: 'p-cod', lblId: 'p-cod-lbl', prefixo: 'PRD-', proximo: 'p-cat' },
-    cli:  { nomeId: 'c-nm', codId: 'c-doc', lblId: 'c-cod-lbl', prefixo: 'CLI-', proximo: 'c-tp'  },
-    forn: { nomeId: 'f-nm', codId: 'f-cnpj', lblId: 'f-cod-lbl', prefixo: 'FOR-', proximo: 'f-ct'  },
-  };
-  const cfg = config[tipo];
-  if (!cfg) return;
-
-  const nomeEl = document.getElementById(cfg.nomeId);
-  const codEl  = document.getElementById(cfg.codId);
-  const lblEl  = document.getElementById(cfg.lblId);
-  const nome   = nomeEl?.value.trim();
-
-  if (!nome) return; // nome vazio, não faz nada
-
-  // Só gera se o campo código estiver vazio (não sobrescreve manual)
-  if (codEl && !codEl.value.trim()) {
-    const codigo = gerarCodigoStr(cfg.prefixo, nome);
-    codEl.value = codigo;
-
-    // Animação visual no campo
-    codEl.style.borderColor = 'var(--green)';
-    codEl.style.background  = 'var(--green-bg)';
-    setTimeout(() => {
-      codEl.style.borderColor = '';
-      codEl.style.background  = '';
-    }, 1500);
-
-    // Mostra label "✓ gerado"
-    if (lblEl) {
-      lblEl.style.display = '';
-      setTimeout(() => { lblEl.style.display = 'none'; }, 3000);
-    }
-  }
-
-  // Move o foco para o próximo campo
-  const proximoEl = document.getElementById(cfg.proximo);
-  if (proximoEl) proximoEl.focus();
-}
-
-// Ao abrir modal de edição, reseta o placeholder do código
-function resetCodLabel(tipo) {
-  const lblIds = { prod: 'p-cod-lbl', cli: 'c-cod-lbl', forn: 'f-cod-lbl' };
-  const id = lblIds[tipo];
-  if (id) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  }
-}
+// ── INICIALIZAÇÃO ─────────────────────────────────────────────
+const toastStyle=document.createElement('style');
+toastStyle.textContent='@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}';
+document.head.appendChild(toastStyle);
 
 boot();
+
 </script>
 </body>
 </html>
