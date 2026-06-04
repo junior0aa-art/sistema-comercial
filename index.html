@@ -457,6 +457,7 @@ textarea{resize:vertical;min-height:52px}
 <!-- ══ MODAIS ═══════════════════════════════════════════════ -->
 
 <!-- Produto -->
+<!-- Produto -->
 <div class="mw" id="mw-prod"><div class="mo lg">
   <div class="mh"><h2 id="mp-t">Novo produto</h2><button class="xb" onclick="fecharM('prod')">&times;</button></div>
   <div class="mb"><div id="a-mprod"></div><div class="fg c3">
@@ -465,14 +466,30 @@ textarea{resize:vertical;min-height:52px}
     <div class="f"><label>Categoria</label><input id="p-cat" placeholder="ex: Eletrônicos"></div>
     <div class="f s3"><label>Nome do produto *</label><input id="p-nm" placeholder="Descrição completa do produto"></div>
     <div class="f"><label>Marca</label><input id="p-marca" placeholder="ex: Samsung, Nike..."></div>
-    <input type="hidden" id="c-cod">
+    <div class="f"><label>Código de barras</label><input id="p-barras" placeholder="EAN-13 ou outro"></div>
+    <div class="f"><label>Preço de venda (R$)</label><input id="p-pr" type="number" min="0" step="0.01" placeholder="0,00"></div>
+    <div class="f"><label>Custo (R$)</label><input id="p-cu" type="number" min="0" step="0.01" placeholder="0,00"></div>
+    <div class="f"><label>Estoque inicial</label><input id="p-est" type="number" min="0" value="0"></div>
+    <div class="f"><label>Estoque mínimo</label><input id="p-emin" type="number" min="0" value="5"></div>
+    <div class="f"><label>Estoque máximo</label><input id="p-emax" type="number" min="0" value="100"></div>
+    <div class="f s3"><label>Fornecedor</label><select id="p-for"><option value="">— Sem fornecedor —</option></select></div>
+    <div class="f s3"><label>Observações</label><textarea id="p-ob" placeholder="Informações adicionais..."></textarea></div>
+  </div></div>
+  <div class="mf"><button class="btn" onclick="fecharM('prod')">Cancelar</button><button class="btn bp" id="btn-prod" onclick="salvarProd()"><i class="ti ti-device-floppy"></i>Salvar produto</button></div>
+</div></div>
+
+<!-- Cliente -->
+<div class="mw" id="mw-cli"><div class="mo">
+  <div class="mh"><h2 id="mc-t">Novo cliente</h2><button class="xb" onclick="fecharM('cli')">&times;</button></div>
+  <div class="mb"><div id="a-mcli"></div><div class="fg">
+    <div class="f s2"><label>Nome / Razão social *</label><input id="c-nm"></div>
     <div class="f"><label>CPF / CNPJ</label><input id="c-doc"></div>
     <div class="f"><label>Tipo</label><select id="c-tp"><option>Pessoa física</option><option>Pessoa jurídica</option></select></div>
     <div class="f"><label>Telefone</label><input id="c-tel"></div>
     <div class="f"><label>E-mail</label><input id="c-em" type="email"></div>
     <div class="f s2"><label>Endereço</label><input id="c-end"></div>
     <div class="f"><label>Cidade</label><input id="c-cid"></div>
-    <div class="f"><label>UF</label><select id="c-uf"><option value="">—</option><option>BA</option><option>SP</option><option>RJ</option><option>MG</option><option>RS</option><option>PR</option><option>SC</option><option>CE</option><option>PE</option><option>GO</option><option>DF</option></select></div>
+    <div class="f"><label>UF</label><select id="c-uf"><option value="">—</option><option>BA</option><option>SP</option><option>RJ</option><option>MG</option><option>RS</option><option>PR</option><option>SC</option><option>CE</option><option>PE</option><option>GO</option><option>DF</option><option>AM</option><option>PA</option><option>MT</option><option>MS</option><option>ES</option><option>RN</option><option>PB</option><option>AL</option><option>SE</option><option>PI</option><option>MA</option><option>TO</option><option>RO</option><option>AC</option><option>RR</option><option>AP</option></select></div>
     <div class="f"><label>Limite de crédito (R$)</label><input id="c-lim" type="number" min="0" step="0.01" value="0"></div>
     <div class="f"><label>Status</label><select id="c-st"><option>Ativo</option><option>Inativo</option></select></div>
     <div class="f s2"><label>Observações</label><textarea id="c-ob"></textarea></div>
@@ -480,7 +497,6 @@ textarea{resize:vertical;min-height:52px}
   <div class="mf"><button class="btn" onclick="fecharM('cli')">Cancelar</button><button class="btn bp" id="btn-cli" onclick="salvarCli()"><i class="ti ti-device-floppy"></i>Salvar cliente</button></div>
 </div></div>
 
-<!-- Fornecedor -->
 <div class="mw" id="mw-forn"><div class="mo">
   <div class="mh"><h2 id="mf-t">Novo fornecedor</h2><button class="xb" onclick="fecharM('forn')">&times;</button></div>
   <div class="mb"><div id="a-mforn"></div><div class="fg">
