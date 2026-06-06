@@ -887,14 +887,15 @@ function setOffline() {
 window.addEventListener('online',  () => setOnline());
 window.addEventListener('offline', () => setOffline());
 setInterval(async () => {
-  if (!sb || !isCfgOk()) return;
+  // Não verificar se está salvando (evita falso offline durante operações longas)
+  if (!sb || !isCfgOk() || _salvandoVnd) return;
   try {
     const { error } = await sb.from('workspaces').select('id').limit(1);
     if (!_isOnline) setOnline();
   } catch(e) {
     if (e.message?.includes('fetch')||e.message?.includes('Failed')) if (_isOnline) setOffline();
   }
-}, 30000);
+}, 60000); // 60s para não interferir com operações
 
 async function tentarSincronizar() {
   if (!_isOnline || !sb || !wsId()) return;
@@ -1484,7 +1485,27 @@ async function rVend() {
     } else {
       data = (await idbGetAll('vendas')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||''));
     }
-    if (!data.length) { tb.innerHTML='<tr><td colspan="8" class="emp">Nenhuma venda.</td></tr>'; return; }
+    // Verificar orçamentos aprovados aguardando finalização
+    try{
+      const {data:orcs}=await sb.from('orcamentos').select('*,clientes(nome),orcamento_itens(*)').eq('workspace_id',wsId()).eq('status','Aprovado');
+      if(orcs&&orcs.length>0){
+        const banner=document.getElementById('orc-banner')||document.createElement('div');
+        banner.id='orc-banner';
+        banner.style.cssText='background:var(--blue-bg);border:1px solid var(--blue-txt);border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:var(--blue-txt)';
+        banner.innerHTML='<b><i class="ti ti-file-invoice" style="margin-right:6px"></i>'+orcs.length+' orçamento(s) aguardando finalização:</b>'
+          +orcs.map(o=>`<div style="margin-top:8px;display:flex;align-items:center;gap:10px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid var(--bdr)">
+            <span style="flex:1"><b>${o.clientes?.nome||'—'}</b> · ${R(o.total)} · Validade: ${o.validade||'—'}</span>
+            <button class="btn bp sm" onclick="finalizarOrcamentoComoVenda('${o.id}')"><i class="ti ti-shopping-cart"></i>Finalizar como venda</button>
+          </div>`).join('');
+        const tabelaVend=document.getElementById('tb-vend');
+        if(tabelaVend&&tabelaVend.parentNode&&!document.getElementById('orc-banner'))
+          tabelaVend.parentNode.parentNode.insertBefore(banner,tabelaVend.parentNode);
+      } else {
+        const banner=document.getElementById('orc-banner');
+        if(banner) banner.remove();
+      }
+    }catch(e){}
+    if (!data.length) { tb.innerHTML='<tr><td colspan="8" class="emp">Nenhuma venda registrada.</td></tr>'; return; }
     tb.innerHTML = data.map(v=>`<tr>
       <td><small style="color:var(--txt2)">${String(v.id||'').slice(-6)}</small></td>
       <td>${v.data}</td><td>${v.clientes?.nome||'—'}</td>
@@ -1510,8 +1531,9 @@ async function rOrc() {
     tb.innerHTML = data.map(o=>{
       const bc=o.status==='Aprovado'?'bs':o.status==='Cancelado'?'bd':'bw';
       const acts=o.status==='Em aberto'
-        ?`<button class="btn sm bsu" onclick="aprovarOrc('${o.id}')"><i class="ti ti-check"></i></button>
-           <button class="btn sm bda" onclick="cancelarOrc('${o.id}')"><i class="ti ti-x"></i></button>`:'';
+        ?`<button class="btn sm" style="background:var(--blue-bg);color:var(--blue-txt);border-color:var(--blue-txt);font-size:10px" onclick="aprovarOrc('${o.id}')"><i class="ti ti-send"></i>Enviar p/ Vendas</button>
+           <button class="btn sm bda" onclick="cancelarOrc('${o.id}')"><i class="ti ti-x"></i></button>`
+        :o.status==='Aprovado'?`<span style="font-size:10px;color:var(--green-txt)">✓ Em Vendas</span>`:'';
       return `<tr>
         <td><small style="color:var(--txt2)">${String(o.id||'').slice(-6)}</small></td>
         <td>${o.data}</td><td>${o.clientes?.nome||'—'}</td><td>${o.validade||'—'}</td><td>${R(o.tot||o.total||0)}</td>
@@ -1566,8 +1588,11 @@ function rItens(){
   document.getElementById('vi-tot').textContent=R(calcTot());
 }
 
+let _salvandoVnd = false; // proteção contra duplo clique
 async function salvarVnd() {
   if(!iV.length){alert('Adicione ao menos um item.');return;}
+  if(_salvandoVnd){return;} // bloqueia duplo clique
+  _salvandoVnd = true;
   const btn=document.getElementById('btn-sv'); btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Salvando...';
   try {
     const tot=calcTot(), cliId=document.getElementById('v-cli').value||null;
@@ -1583,33 +1608,95 @@ async function salvarVnd() {
       }
       if(fst==='pago') await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Venda '+String(v.id).slice(-6),tipo:'receita',categoria:'Vendas',valor:tot,data:ex||hj(),status:'confirmado',metodo:pgto});
       else {const vc=document.getElementById('v-venc').value; await dbInsert('contas_receber',{workspace_id:wsId(),cliente_id:cliId,descricao:'Venda '+String(v.id).slice(-6),vencimento:vc||ex||hj(),valor:tot,status:'aberto',categoria:'Venda'});}
+      // Se veio de um orçamento, marcar como Concluído
+      const orcId = document.getElementById('btn-sv').dataset.orcId;
+      if (orcId) {
+        await dbUpdate('orcamentos', orcId, { status: 'Concluído' });
+        delete document.getElementById('btn-sv').dataset.orcId;
+        // Remove o banner do orçamento finalizado
+        const banner = document.getElementById('orc-banner');
+        if (banner) banner.remove();
+      }
       fecharM('vnd'); await rVend(); alrt('vend','Venda registrada!','s');
     } else {
       const o = await dbInsert('orcamentos',{workspace_id:wsId(),cliente_id:cliId,data:hj(),validade:ex||null,total:tot,desconto:desc,status:'Em aberto',observacoes:ob});
       for(const it of iV) await dbInsert('orcamento_itens',{orcamento_id:o.id,...it});
       fecharM('vnd'); await rOrc(); alrt('orc','Orçamento salvo!','s');
+      _salvandoVnd = false;
     }
     updBadges();
-  } catch(e){alrt('mvnd','Erro: '+e.message,'d');}
+  } catch(e){
+    _salvandoVnd = false;
+    alrt('mvnd','Erro: '+e.message,'d');
+  }
+  _salvandoVnd = false;
   btn.disabled=false; btn.innerHTML=`<i class="ti ti-check"></i>${modoVenda==='venda'?'Registrar venda':'Salvar orçamento'}`;
 }
 
 async function aprovarOrc(id){
-  if(!confirm('Aprovar e gerar venda?'))return;
+  // Marca orçamento como "Aprovado" e move para a tela de Vendas para finalizar
+  if(!confirm('Enviar este orçamento para Vendas?\nVocê poderá revisar e confirmar o pagamento lá.'))return;
   try{
-    const {data:o}=await sb.from('orcamentos').select('*,orcamento_itens(*)').eq('id',id).single();
     await dbUpdate('orcamentos',id,{status:'Aprovado'});
-    const v=await dbInsert('vendas',{workspace_id:wsId(),cliente_id:o.cliente_id,data:hj(),total:o.total,pagamento:'—',status:'Concluída',fin_status:'pago',observacoes:'Orçamento '+String(id).slice(-6)});
-    for(const it of o.orcamento_itens||[]){
-      await dbInsert('venda_itens',{venda_id:v.id,...it});
-      const p=_produtos.find(x=>x.id===it.produto_id);
-      if(p){const ne=Math.max(0,p.estoque-it.quantidade);await dbUpdate('produtos',it.produto_id,{estoque:ne});p.estoque=ne;}
-    }
-    await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Orçamento '+String(id).slice(-6),tipo:'receita',categoria:'Vendas',valor:o.total,data:hj(),status:'confirmado',metodo:'—'});
-    await rOrc(); alrt('orc','Aprovado e venda gerada!','s'); updBadges();
+    await rOrc();
+    alrt('orc','Orçamento enviado para Vendas! Acesse o menu Vendas para finalizar.','s');
+    // Aguarda 2s e redireciona para a tela de vendas
+    setTimeout(()=>nav('vend'),2000);
   }catch(e){alrt('orc','Erro: '+e.message,'d');}
 }
 async function cancelarOrc(id){if(!confirm('Cancelar?'))return;await dbUpdate('orcamentos',id,{status:'Cancelado'});rOrc();}
+
+// Finalizar orçamento como venda — abre modal de vendas preenchido
+async function finalizarOrcamentoComoVenda(orcId) {
+  try {
+    const { data: o } = await sb.from('orcamentos')
+      .select('*,orcamento_itens(*)')
+      .eq('id', orcId)
+      .single();
+    if (!o) { alert('Orçamento não encontrado.'); return; }
+
+    // Abrir modal de venda
+    modoVenda = 'venda';
+    iV = (o.orcamento_itens || []).map(it => ({
+      produto_id    : it.produto_id,
+      nome_produto  : it.nome_produto,
+      quantidade    : it.quantidade,
+      preco_unitario: it.preco_unitario,
+    }));
+
+    document.getElementById('mv-t').textContent  = 'Finalizar Venda (Orçamento)';
+    document.getElementById('btn-sv').innerHTML  = '<i class="ti ti-check"></i>Confirmar venda';
+    document.getElementById('v-exlbl').textContent = 'Data';
+    document.getElementById('v-ex').value  = hj();
+    document.getElementById('v-ob').value  = 'Orçamento ' + String(orcId).slice(-6);
+    document.getElementById('v-desc').value = o.desconto || 0;
+    document.getElementById('v-fst').value  = 'pago';
+    document.getElementById('venc-f').style.display = 'none';
+    document.getElementById('a-mvnd').innerHTML = `
+      <div style="background:var(--blue-bg);border:1px solid var(--blue-txt);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--blue-txt);margin-bottom:10px">
+        <i class="ti ti-file-invoice"></i> Finalizando orçamento — revise e confirme o pagamento abaixo.
+      </div>`;
+
+    // Preencher cliente
+    const sc = document.getElementById('v-cli');
+    sc.innerHTML = '<option value="">— Sem cliente —</option>';
+    _clientes.forEach(c => { sc.innerHTML += `<option value="${c.id}">${c.nome}</option>`; });
+    if (o.cliente_id) sc.value = o.cliente_id;
+
+    // Preencher produtos no select
+    const sp = document.getElementById('vi-p');
+    sp.innerHTML = '<option value="">— Selecionar produto —</option>';
+    _produtos.forEach(p => { sp.innerHTML += `<option value="${p.id}">${p.nome} · ${R(p.preco)}</option>`; });
+
+    // Guardar o ID do orçamento para marcar como Concluído ao salvar
+    document.getElementById('btn-sv').dataset.orcId = orcId;
+
+    rItens();
+    abrirM('vnd');
+  } catch(e) {
+    alert('Erro ao abrir orçamento: ' + e.message);
+  }
+}
 
 async function verDoc(id,tipo){
   try{
