@@ -640,6 +640,7 @@ let _produtos = [], _clientes = [], _fornecedores = [];
 let iV = [], modoVenda = 'venda', adjId = null, tipoC = 'cr';
 let editId = {};
 let _isOnline = navigator.onLine;
+let _operacaoEmAndamento = false; // suspende detecção offline durante saves
 
 // ── UTILITÁRIOS ─────────────────────────────────────────────
 const R   = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -756,14 +757,21 @@ async function atualizarBadgeSync() {
 async function dbInsert(tabela, payload) {
   const item = { ...payload, id: payload.id || ('local_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)) };
   if (_isOnline) {
+    _operacaoEmAndamento = true;
     try {
       const { data, error } = await sb.from(tabela).insert(payload).select().single();
+      _operacaoEmAndamento = false;
       if (error) throw error;
       await idbPut(tabela, data);
       return data;
     } catch(e) {
+      _operacaoEmAndamento = false;
       if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
-        setOffline(); await idbPut(tabela,item); await enfileirarSync(tabela,'insert',payload); return item;
+        // Só vai offline se não for apenas timeout da operação
+        setTimeout(() => {
+          if (!_operacaoEmAndamento) setOffline();
+        }, 2000);
+        await idbPut(tabela,item); await enfileirarSync(tabela,'insert',payload); return item;
       }
       throw e;
     }
@@ -774,14 +782,17 @@ async function dbInsert(tabela, payload) {
 
 async function dbUpdate(tabela, id, payload) {
   if (_isOnline) {
+    _operacaoEmAndamento = true;
     try {
       const { data, error } = await sb.from(tabela).update(payload).eq('id',id).select().single();
+      _operacaoEmAndamento = false;
       if (error) throw error;
       await idbPut(tabela, { id, ...payload, ...data });
       return data;
     } catch(e) {
+      _operacaoEmAndamento = false;
       if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
-        setOffline();
+        setTimeout(() => { if (!_operacaoEmAndamento) setOffline(); }, 2000);
         const arr = await idbGetAll(tabela);
         const loc = arr.find(r=>r.id===id)||{};
         const upd = { ...loc, ...payload, id };
@@ -878,6 +889,11 @@ function setOnline() {
 }
 function setOffline() {
   if (!_isOnline) return;
+  // Não ativar offline durante operações de banco (salvar venda, etc.)
+  if (_operacaoEmAndamento) {
+    console.log('[Offline] Ignorado durante operação em andamento');
+    return;
+  }
   _isOnline = false;
   mostrarBarraOffline(true);
   document.title = '📴 Offline — Sistema Comercial';
@@ -1593,6 +1609,7 @@ async function salvarVnd() {
   if(!iV.length){alert('Adicione ao menos um item.');return;}
   if(_salvandoVnd){return;} // bloqueia duplo clique
   _salvandoVnd = true;
+  _operacaoEmAndamento = true; // suspende detecção offline
   const btn=document.getElementById('btn-sv'); btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Salvando...';
   try {
     const tot=calcTot(), cliId=document.getElementById('v-cli').value||null;
@@ -1627,9 +1644,11 @@ async function salvarVnd() {
     updBadges();
   } catch(e){
     _salvandoVnd = false;
+    _operacaoEmAndamento = false;
     alrt('mvnd','Erro: '+e.message,'d');
   }
   _salvandoVnd = false;
+  _operacaoEmAndamento = false;
   btn.disabled=false; btn.innerHTML=`<i class="ti ti-check"></i>${modoVenda==='venda'?'Registrar venda':'Salvar orçamento'}`;
 }
 
