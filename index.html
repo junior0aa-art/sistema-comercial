@@ -669,6 +669,50 @@ function alrt(id, msg, tipo) {
 function abrirM(id) { document.getElementById('mw-'+id)?.classList.add('open'); }
 function fecharM(id) { document.getElementById('mw-'+id)?.classList.remove('open'); }
 
+// ── ONLINE / OFFLINE ────────────────────────────────────────
+function mostrarBarraOffline(show) {
+  const el = document.getElementById('offline-bar');
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+function setOnline() {
+  if (_isOnline) return;
+  _isOnline = true;
+  mostrarBarraOffline(false);
+  document.title = 'Sistema Comercial';
+  mostrarToast('🌐 Conexão restaurada! Sincronizando...', 'info');
+  setTimeout(() => tentarSincronizar(), 1500);
+}
+
+function setOffline() {
+  if (!_isOnline) return;
+  // Não ativar offline durante operações de banco
+  if (_operacaoEmAndamento) {
+    console.log('[Offline] Ignorado durante operação em andamento');
+    return;
+  }
+  _isOnline = false;
+  mostrarBarraOffline(true);
+  document.title = '📴 Offline — Sistema Comercial';
+  mostrarToast('📴 Sem conexão. Trabalhando no modo offline.', 'error');
+  atualizarBadgeSync();
+}
+
+window.addEventListener('online',  () => setOnline());
+window.addEventListener('offline', () => setOffline());
+
+// Verificar conectividade real a cada 60s (ignora durante operações)
+setInterval(async () => {
+  if (!sb || !isCfgOk() || _operacaoEmAndamento || _salvandoVnd) return;
+  try {
+    const { error } = await sb.from('workspaces').select('id').limit(1);
+    if (!_isOnline) setOnline();
+  } catch(e) {
+    const isNet = e.message?.includes('fetch') || e.message?.includes('Failed') || e.message?.includes('NetworkError');
+    if (isNet && _isOnline) setOffline();
+  }
+}, 60000);
+
 function mostrarToast(msg, tipo='success') {
   const cores = {
     success:{bg:'#f0fdf4',bdr:'#22c55e',txt:'#166534'},
@@ -689,13 +733,14 @@ function mostrarToast(msg, tipo='success') {
 // ── INDEXEDDB (OFFLINE) ─────────────────────────────────────
 const IDB_NAME = 'sistema_comercial_v1';
 let _dbLocal = null;
-const STORES = ['produtos','clientes','fornecedores','vendas','orcamentos',
-                'lancamentos','contas_receber','contas_pagar','sync_queue'];
+const STORES = ['produtos','clientes','fornecedores','vendas','venda_itens',
+                'orcamentos','orcamento_itens','lancamentos',
+                'contas_receber','contas_pagar','mov_estoque','sync_queue'];
 
 function abrirIDB() {
   return new Promise((resolve, reject) => {
     if (_dbLocal) { resolve(_dbLocal); return; }
-    const req = indexedDB.open(IDB_NAME, 1);
+    const req = indexedDB.open(IDB_NAME, 2); // v2: adiciona venda_itens, orcamento_itens, mov_estoque
     req.onupgradeneeded = e => {
       const db = e.target.result;
       STORES.forEach(s => { if (!db.objectStoreNames.contains(s)) db.createObjectStore(s,{keyPath:'id'}); });
@@ -766,14 +811,15 @@ async function dbInsert(tabela, payload) {
       return data;
     } catch(e) {
       _operacaoEmAndamento = false;
-      if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
-        // Só vai offline se não for apenas timeout da operação
+      // Só ativa offline se for erro de REDE (não erro de IDB ou SQL)
+      const isNetworkErr = e.message?.includes('fetch') || e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError');
+      if (isNetworkErr) {
         setTimeout(() => {
           if (!_operacaoEmAndamento) setOffline();
         }, 2000);
         await idbPut(tabela,item); await enfileirarSync(tabela,'insert',payload); return item;
       }
-      throw e;
+      throw e; // outros erros (SQL, IDB, etc.) sobem para o caller
     }
   } else {
     await idbPut(tabela, item); await enfileirarSync(tabela,'insert',payload); return item;
@@ -791,7 +837,8 @@ async function dbUpdate(tabela, id, payload) {
       return data;
     } catch(e) {
       _operacaoEmAndamento = false;
-      if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
+      const isNetworkErr = e.message?.includes('fetch') || e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError');
+      if (isNetworkErr) {
         setTimeout(() => { if (!_operacaoEmAndamento) setOffline(); }, 2000);
         const arr = await idbGetAll(tabela);
         const loc = arr.find(r=>r.id===id)||{};
@@ -857,61 +904,26 @@ async function proximoCodigo(tipo) {
 async function cachearTudo() {
   if (!_isOnline || !sb || !wsId()) return;
   const tabelas = [
-    {n:'produtos',      q:()=>sb.from('produtos').select('*,fornecedores(nome)').eq('workspace_id',wsId())},
-    {n:'clientes',      q:()=>sb.from('clientes').select('*').eq('workspace_id',wsId())},
-    {n:'fornecedores',  q:()=>sb.from('fornecedores').select('*').eq('workspace_id',wsId())},
-    {n:'vendas',        q:()=>sb.from('vendas').select('*,clientes(nome),venda_itens(*)').eq('workspace_id',wsId())},
-    {n:'orcamentos',    q:()=>sb.from('orcamentos').select('*,clientes(nome),orcamento_itens(*)').eq('workspace_id',wsId())},
-    {n:'lancamentos',   q:()=>sb.from('lancamentos').select('*').eq('workspace_id',wsId())},
-    {n:'contas_receber',q:()=>sb.from('contas_receber').select('*,clientes(nome)').eq('workspace_id',wsId())},
-    {n:'contas_pagar',  q:()=>sb.from('contas_pagar').select('*,fornecedores(nome)').eq('workspace_id',wsId())},
+    {n:'produtos',        q:()=>sb.from('produtos').select('*,fornecedores(nome)').eq('workspace_id',wsId())},
+    {n:'clientes',        q:()=>sb.from('clientes').select('*').eq('workspace_id',wsId())},
+    {n:'fornecedores',    q:()=>sb.from('fornecedores').select('*').eq('workspace_id',wsId())},
+    {n:'vendas',          q:()=>sb.from('vendas').select('*,clientes(nome)').eq('workspace_id',wsId())},
+    {n:'venda_itens',     q:()=>sb.from('venda_itens').select('*')},
+    {n:'orcamentos',      q:()=>sb.from('orcamentos').select('*,clientes(nome)').eq('workspace_id',wsId())},
+    {n:'orcamento_itens', q:()=>sb.from('orcamento_itens').select('*')},
+    {n:'lancamentos',     q:()=>sb.from('lancamentos').select('*').eq('workspace_id',wsId())},
+    {n:'contas_receber',  q:()=>sb.from('contas_receber').select('*,clientes(nome)').eq('workspace_id',wsId())},
+    {n:'contas_pagar',    q:()=>sb.from('contas_pagar').select('*,fornecedores(nome)').eq('workspace_id',wsId())},
+    {n:'mov_estoque',     q:()=>sb.from('mov_estoque').select('*').eq('workspace_id',wsId())},
   ];
   for (const t of tabelas) {
     try {
       const { data } = await t.q();
       if (data) { await idbClear(t.n); for (const r of data) await idbPut(t.n, r); }
-    } catch(e) {}
+    } catch(e) { console.warn('[Cache]', t.n, e.message); }
   }
 }
 
-// ── OFFLINE/ONLINE ───────────────────────────────────────────
-function mostrarBarraOffline(show) {
-  const el = document.getElementById('offline-bar');
-  if (el) el.style.display = show ? 'flex' : 'none';
-}
-function setOnline() {
-  if (_isOnline) return;
-  _isOnline = true;
-  mostrarBarraOffline(false);
-  document.title = 'Sistema Comercial';
-  mostrarToast('🌐 Conexão restaurada! Sincronizando...', 'info');
-  setTimeout(() => tentarSincronizar(), 1500);
-}
-function setOffline() {
-  if (!_isOnline) return;
-  // Não ativar offline durante operações de banco (salvar venda, etc.)
-  if (_operacaoEmAndamento) {
-    console.log('[Offline] Ignorado durante operação em andamento');
-    return;
-  }
-  _isOnline = false;
-  mostrarBarraOffline(true);
-  document.title = '📴 Offline — Sistema Comercial';
-  mostrarToast('📴 Sem conexão. Trabalhando no modo offline.', 'error');
-  atualizarBadgeSync();
-}
-window.addEventListener('online',  () => setOnline());
-window.addEventListener('offline', () => setOffline());
-setInterval(async () => {
-  // Não verificar se está salvando (evita falso offline durante operações longas)
-  if (!sb || !isCfgOk() || _salvandoVnd) return;
-  try {
-    const { error } = await sb.from('workspaces').select('id').limit(1);
-    if (!_isOnline) setOnline();
-  } catch(e) {
-    if (e.message?.includes('fetch')||e.message?.includes('Failed')) if (_isOnline) setOffline();
-  }
-}, 60000); // 60s para não interferir com operações
 
 async function tentarSincronizar() {
   if (!_isOnline || !sb || !wsId()) return;
