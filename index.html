@@ -364,7 +364,7 @@ textarea{resize:vertical;min-height:52px}
       <!-- VENDAS -->
       <div class="page" id="page-vend">
         <div id="a-vend"></div>
-        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:60px">#</th><th style="width:85px">Data</th><th>Cliente</th><th style="width:55px">Itens</th><th style="width:100px">Total</th><th style="width:110px">Pagamento</th><th style="width:75px">Status</th><th style="width:55px">Ver</th></tr></thead><tbody id="tb-vend"><tr><td colspan="8" class="emp">Carregando...</td></tr></tbody></table></div></div>
+        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:60px">#</th><th style="width:85px">Data</th><th>Cliente</th><th style="width:55px">Itens</th><th style="width:100px">Total</th><th style="width:110px">Pagamento</th><th style="width:75px">Status</th><th style="width:95px">Ações</th></tr></thead><tbody id="tb-vend"><tr><td colspan="8" class="emp">Carregando...</td></tr></tbody></table></div></div>
       </div>
 
       <!-- ORÇAMENTOS -->
@@ -613,25 +613,35 @@ textarea{resize:vertical;min-height:52px}
 <!-- ══ SCRIPTS ═══════════════════════════════════════════════ -->
 <script>
 // ── CONFIG ─────────────────────────────────────────────────
+// Credenciais fixas — altere aqui se mudar o projeto Supabase
+const SB_URL = 'https://hfojkdxkfkbjwdpwuoan.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhmb2prZHhrZmtiandjcHd1b2FuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgzNzM3MTYsImV4cCI6MjA2Mzk0OTcxNn0.k3YSEA_bHCGzpnH7MHg5DkZBsF1cFvwFq_fBRBf5z3g';
+
 const CFG_URL_KEY = 'sb_url';
 const CFG_KEY_KEY = 'sb_key';
 
 function getCfg() {
   return {
-    url: localStorage.getItem(CFG_URL_KEY) || '',
-    key: localStorage.getItem(CFG_KEY_KEY) || '',
+    url: localStorage.getItem(CFG_URL_KEY) || SB_URL,
+    key: localStorage.getItem(CFG_KEY_KEY) || SB_KEY,
   };
 }
 function isCfgOk() {
-  const { url, key } = getCfg();
-  return url.startsWith('https://') && url.includes('.supabase.co') && key.length > 20;
+  // Sempre OK — credenciais já estão no código
+  return true;
 }
 
 const { createClient } = supabase;
 let sb = null;
 function initSb() {
   const { url, key } = getCfg();
-  sb = createClient(url, key);
+  sb = createClient(url, key, {
+    auth: {
+      persistSession: true,    // salva sessão no localStorage
+      autoRefreshToken: true,  // renova token automaticamente
+      detectSessionInUrl: true
+    }
+  });
 }
 
 // ── ESTADO GLOBAL ───────────────────────────────────────────
@@ -1009,17 +1019,22 @@ async function boot() {
       navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     }
   }
-  if (!isCfgOk()) { showSetup(); return; }
+  // Sempre inicializa com credenciais fixas
   if (!sb) initSb();
   try {
     const { data } = await sb.auth.getSession();
     SESSION = data.session;
-    if (SESSION) { await loadUserContext(); showApp(); }
-    else showAuth();
+    if (SESSION) {
+      // Sessão ativa — entra direto no sistema
+      await loadUserContext();
+      showApp();
+    } else {
+      // Sem sessão — vai para tela de login
+      showAuth();
+    }
   } catch(e) {
-    if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
-      localStorage.removeItem(CFG_URL_KEY); localStorage.removeItem(CFG_KEY_KEY); showSetup();
-    } else showAuth();
+    console.error('[boot]', e);
+    showAuth();
   }
 }
 
@@ -1031,9 +1046,10 @@ async function loadUserContext() {
 
 function showAuth() {
   document.getElementById('loading-screen').classList.add('hide');
+  // Esconder setup screen se estiver visível
+  const setup = document.getElementById('setup-screen');
+  if (setup) setup.style.display = 'none';
   document.getElementById('auth-screen').classList.add('show');
-  const el = document.getElementById('cfg-status');
-  if (el) el.textContent = 'Configurado';
 }
 
 function showApp() {
@@ -1540,7 +1556,10 @@ async function rVend() {
       <td>${(v.venda_itens||[]).length}</td><td>${R(v.total)}</td>
       <td>${v.pagamento||'—'}</td>
       <td><span class="badge bs">Concluída</span></td>
-      <td><button class="btn sm" onclick="verDoc('${v.id}','venda')"><i class="ti ti-eye"></i></button></td></tr>`).join('');
+      <td><div class="tda">
+        <button class="btn sm" onclick="verDoc('${v.id}','venda')"><i class="ti ti-eye"></i></button>
+        <button class="btn sm bda" onclick="excluirVenda('${v.id}')"><i class="ti ti-trash"></i></button>
+      </div></td></tr>`).join('');
   } catch(e) { tb.innerHTML=`<tr><td colspan="8" class="emp">Erro: ${e.message}</td></tr>`; }
 }
 
@@ -1560,8 +1579,11 @@ async function rOrc() {
       const bc=o.status==='Aprovado'?'bs':o.status==='Cancelado'?'bd':'bw';
       const acts=o.status==='Em aberto'
         ?`<button class="btn sm" style="background:var(--blue-bg);color:var(--blue-txt);border-color:var(--blue-txt);font-size:10px" onclick="aprovarOrc('${o.id}')"><i class="ti ti-send"></i>Enviar p/ Vendas</button>
-           <button class="btn sm bda" onclick="cancelarOrc('${o.id}')"><i class="ti ti-x"></i></button>`
-        :o.status==='Aprovado'?`<span style="font-size:10px;color:var(--green-txt)">✓ Em Vendas</span>`:'';
+           <button class="btn sm bda" onclick="excluirOrcamento('${o.id}')"><i class="ti ti-trash"></i></button>`
+        :o.status==='Aprovado'
+          ?`<span style="font-size:10px;color:var(--green-txt)">✓ Em Vendas</span>
+            <button class="btn sm bda" onclick="excluirOrcamento('${o.id}')"><i class="ti ti-trash"></i></button>`
+          :`<button class="btn sm bda" onclick="excluirOrcamento('${o.id}')"><i class="ti ti-trash"></i></button>`;
       return `<tr>
         <td><small style="color:var(--txt2)">${String(o.id||'').slice(-6)}</small></td>
         <td>${o.data}</td><td>${o.clientes?.nome||'—'}</td><td>${o.validade||'—'}</td><td>${R(o.tot||o.total||0)}</td>
@@ -1676,6 +1698,44 @@ async function aprovarOrc(id){
   }catch(e){alrt('orc','Erro: '+e.message,'d');}
 }
 async function cancelarOrc(id){if(!confirm('Cancelar?'))return;await dbUpdate('orcamentos',id,{status:'Cancelado'});rOrc();}
+
+// ── EXCLUIR VENDA ────────────────────────────────────────────
+async function excluirVenda(id) {
+  if (!confirm('Excluir esta venda permanentemente?\nEsta ação não pode ser desfeita.')) return;
+  try {
+    // Excluir itens da venda primeiro
+    if (_isOnline) {
+      await sb.from('venda_itens').delete().eq('venda_id', id);
+      await sb.from('vendas').delete().eq('id', id);
+    } else {
+      await dbDeleteItem('vendas', id);
+    }
+    await rVend();
+    alrt('vend', 'Venda excluída com sucesso.', 's');
+    updBadges();
+  } catch(e) {
+    alrt('vend', 'Erro ao excluir: ' + e.message, 'd');
+  }
+}
+
+// ── EXCLUIR ORÇAMENTO ─────────────────────────────────────────
+async function excluirOrcamento(id) {
+  if (!confirm('Excluir este orçamento permanentemente?\nEsta ação não pode ser desfeita.')) return;
+  try {
+    // Excluir itens do orçamento primeiro
+    if (_isOnline) {
+      await sb.from('orcamento_itens').delete().eq('orcamento_id', id);
+      await sb.from('orcamentos').delete().eq('id', id);
+    } else {
+      await dbDeleteItem('orcamentos', id);
+    }
+    await rOrc();
+    alrt('orc', 'Orçamento excluído com sucesso.', 's');
+    updBadges();
+  } catch(e) {
+    alrt('orc', 'Erro ao excluir: ' + e.message, 'd');
+  }
+}
 
 // Finalizar orçamento como venda — abre modal de vendas preenchido
 async function finalizarOrcamentoComoVenda(orcId) {
