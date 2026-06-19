@@ -231,9 +231,25 @@ textarea{resize:vertical;min-height:52px}
     <!-- LOGIN -->
     <div class="auth-form show" id="form-login">
       <div class="auth-err" id="err-login"></div>
-      <div class="f" style="margin-bottom:10px"><label>E-mail</label><input id="l-email" type="email" placeholder="seu@email.com" autocomplete="email"></div>
-      <div class="f" style="margin-bottom:16px"><label>Senha</label><input id="l-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+      <div class="f" style="margin-bottom:10px"><label>E-mail</label><input id="l-email" type="email" placeholder="seu@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="f" style="margin-bottom:6px"><label>Senha</label><input id="l-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div style="text-align:right;margin-bottom:14px">
+        <a href="#" onclick="abrirRecuperarSenha()" style="font-size:12px;color:var(--blue-txt)">Esqueci minha senha</a>
+      </div>
       <button class="btn-auth" id="btn-login" onclick="doLogin()">Entrar</button>
+    </div>
+
+    <!-- RECUPERAR SENHA -->
+    <div class="auth-form" id="form-reset">
+      <div style="font-size:13px;color:var(--txt2);margin-bottom:14px">
+        Informe seu e-mail e enviaremos um link para redefinir sua senha.
+      </div>
+      <div class="auth-err" id="err-reset"></div>
+      <div class="f" style="margin-bottom:16px"><label>E-mail</label><input id="reset-email" type="email" placeholder="seu@email.com" onkeydown="if(event.key==='Enter')enviarResetSenha()"></div>
+      <button class="btn-auth" id="btn-reset" onclick="enviarResetSenha()">Enviar link de recuperação</button>
+      <div style="text-align:center;margin-top:12px">
+        <a href="#" onclick="voltarParaLogin()" style="font-size:12px;color:var(--txt2)">← Voltar para o login</a>
+      </div>
     </div>
 
     <!-- REGISTRO -->
@@ -1078,22 +1094,82 @@ function authTab(t) {
 }
 
 async function doLogin() {
-  const btn = document.getElementById('btn-login');
-  const err = document.getElementById('err-login');
+  const btn   = document.getElementById('btn-login');
+  const err   = document.getElementById('err-login');
   const email = document.getElementById('l-email').value.trim();
   const pass  = document.getElementById('l-pass').value;
   err.classList.remove('show');
-  if (!email||!pass) { err.textContent='Preencha e-mail e senha.'; err.classList.add('show'); return; }
+  if (!email) { err.textContent='Informe o e-mail.'; err.classList.add('show'); return; }
+  if (!pass)  { err.textContent='Informe a senha.';  err.classList.add('show'); return; }
   btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Entrando...';
   try {
     const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
     if (error) throw error;
+    if (!data.session) throw new Error('Sessão não criada. Verifique seu e-mail de confirmação.');
     SESSION = data.session;
-    await loadUserContext(); showApp();
+    await loadUserContext();
+    showApp();
   } catch(e) {
-    err.textContent = e.message?.includes('fetch') ? 'Erro de conexão.' : 'E-mail ou senha incorretos.';
+    let msg = 'Erro ao entrar.';
+    if (e.message?.includes('fetch') || e.message?.includes('Failed'))
+      msg = 'Erro de conexão. Verifique sua internet.';
+    else if (e.message?.includes('Invalid login') || e.message?.includes('invalid_credentials'))
+      msg = 'E-mail ou senha incorretos. Verifique e tente novamente.';
+    else if (e.message?.includes('Email not confirmed'))
+      msg = 'E-mail não confirmado. Verifique sua caixa de entrada.';
+    else if (e.message?.includes('Too many'))
+      msg = 'Muitas tentativas. Aguarde alguns minutos.';
+    else
+      msg = e.message || 'Erro desconhecido.';
+    err.textContent = msg;
     err.classList.add('show');
-    btn.disabled=false; btn.innerHTML='Entrar';
+    btn.disabled=false;
+    btn.innerHTML='Entrar';
+  }
+}
+
+function abrirRecuperarSenha() {
+  document.querySelectorAll('.auth-form').forEach(x => x.classList.remove('show'));
+  document.getElementById('form-reset').classList.add('show');
+  document.querySelectorAll('.auth-tab').forEach(x => x.classList.remove('active'));
+  document.getElementById('err-reset').classList.remove('show');
+  document.getElementById('reset-email').value = document.getElementById('l-email').value || '';
+}
+
+function voltarParaLogin() {
+  document.querySelectorAll('.auth-form').forEach(x => x.classList.remove('show'));
+  document.getElementById('form-login').classList.add('show');
+  document.querySelectorAll('.auth-tab').forEach((x,i) => { if(i===0) x.classList.add('active'); });
+}
+
+async function enviarResetSenha() {
+  const btn   = document.getElementById('btn-reset');
+  const err   = document.getElementById('err-reset');
+  const email = document.getElementById('reset-email').value.trim();
+  err.classList.remove('show');
+  if (!email) { err.textContent='Informe o e-mail.'; err.classList.add('show'); return; }
+  btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Enviando...';
+  try {
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    if (error) throw error;
+    // Sucesso
+    err.style.background='var(--green-bg)';
+    err.style.color='var(--green-txt)';
+    err.style.borderColor='var(--green)';
+    err.textContent='✅ Link enviado! Verifique sua caixa de entrada (e o spam).';
+    err.classList.add('show');
+    btn.disabled=true;
+    btn.innerHTML='Link enviado';
+  } catch(e) {
+    err.style.background='';
+    err.style.color='';
+    err.style.borderColor='';
+    err.textContent = e.message?.includes('fetch') ? 'Erro de conexão.' : (e.message || 'Erro ao enviar.');
+    err.classList.add('show');
+    btn.disabled=false;
+    btn.innerHTML='Enviar link de recuperação';
   }
 }
 
