@@ -1254,11 +1254,16 @@ function updBadges() {
 
 // ── DASHBOARD ────────────────────────────────────────────────
 async function rDash() {
-  const wid = wsId();
   const elV = document.getElementById('d-vlist');
   const elA = document.getElementById('d-alrts');
   const elF = document.getElementById('d-fin');
-  if (!wid) { if(elV) elV.innerHTML='<div class="emp">Aguardando sessão...</div>'; return; }
+  // Aguardar WS carregar (evita race condition)
+  for (let i = 0; i < 30 && !wsId(); i++) await new Promise(r => setTimeout(r, 100));
+  const wid = wsId();
+  if (!wid) {
+    if(elV) elV.innerHTML='<div class="alrt aw"><i class="ti ti-alert-triangle"></i>Sessão não carregada. Recarregue a página.</div>';
+    return;
+  }
   if (elV) elV.innerHTML='<div class="emp">Carregando...</div>';
   try {
     const hjS=hj(), mS=mes();
