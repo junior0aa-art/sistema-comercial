@@ -233,6 +233,10 @@ textarea{resize:vertical;min-height:52px}
   .receipt-actions{display:none!important}
   @page{size:80mm auto;margin:4mm}
 }
+
+/* ── Central SaaS ──────────────────────────────────────── */
+.saas-admin-toolbar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:14px}.saas-admin-toolbar .f{min-width:180px}.saas-admin-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}.saas-admin-table td{vertical-align:middle}.saas-status{display:inline-flex;align-items:center;gap:4px}.saas-status.st-ativo{color:var(--green-txt)}.saas-status.st-bloqueado{color:var(--red-txt)}.saas-status.st-pendente{color:var(--amber-txt)}.saas-actions{display:flex;gap:4px;flex-wrap:wrap}.saas-admin-note{font-size:11px;color:var(--txt2);margin-top:8px}.saas-admin-danger{background:var(--red-bg);border:1px solid #fca5a5;color:var(--red-txt);padding:10px;border-radius:var(--rad);font-size:12px;margin-bottom:12px}
+@media(max-width:900px){.saas-admin-kpis{grid-template-columns:repeat(2,1fr)}}
 </style>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1d4ed8">
@@ -347,6 +351,7 @@ textarea{resize:vertical;min-height:52px}
     <div class="ni" onclick="nav('est')" id="ni-est"><i class="ti ti-box" aria-hidden="true"></i>Controle de estoque<span class="nbadge" id="b-est" style="display:none">!</span></div>
     <div class="ns">Sistema</div>
     <div class="ni" onclick="nav('saas')" id="ni-saas"><i class="ti ti-settings" aria-hidden="true"></i>Plano & workspace</div>
+    <div class="ni" onclick="nav('admin-saas')" id="ni-admin-saas" style="display:none"><i class="ti ti-shield-lock" aria-hidden="true"></i>Central SaaS</div>
     <div class="sf">
       <div class="urow">
         <div class="av" id="s-av">A</div>
@@ -499,6 +504,18 @@ textarea{resize:vertical;min-height:52px}
         <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th>Produto</th><th style="width:90px">Código</th><th style="width:80px">Estoque</th><th style="width:65px">Unid.</th><th style="width:100px">Situação</th><th style="width:105px">Ajuste</th></tr></thead><tbody id="tb-est"><tr><td colspan="6" class="emp">Carregando...</td></tr></tbody></table></div></div>
       </div>
 
+      <!-- CENTRAL ADMINISTRATIVA SAAS -->
+      <div class="page" id="page-admin-saas">
+        <div id="a-admin-saas"></div>
+        <div class="saas-admin-danger"><i class="ti ti-shield-lock"></i> Central administrativa SaaS — ações nesta tela alteram o acesso de empresas inteiras.</div>
+        <div class="saas-admin-kpis" id="admin-saas-kpis"></div>
+        <div class="card">
+          <div class="saas-admin-toolbar"><div class="f" style="flex:1"><label>Buscar empresa</label><input id="admin-saas-busca" placeholder="Nome da empresa..." oninput="filtrarAdminSaas()"></div><div class="f"><label>Status</label><select id="admin-saas-status" onchange="filtrarAdminSaas()"><option value="">Todos</option><option value="ativo">Ativos</option><option value="pendente">Pendentes</option><option value="bloqueado">Bloqueados</option></select></div><button class="btn" onclick="rAdminSaas()"><i class="ti ti-refresh"></i>Atualizar</button></div>
+          <div class="tw"><table class="saas-admin-table"><thead><tr><th>Empresa</th><th style="width:90px">Plano</th><th style="width:90px">Status</th><th style="width:105px">Vencimento</th><th style="width:80px">Usuários</th><th style="width:90px">Vendas</th><th style="width:245px">Ações</th></tr></thead><tbody id="admin-saas-tb"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div>
+          <div class="saas-admin-note">Os dados são carregados por função RPC protegida. Usuários comuns não podem acessar nem alterar esta central.</div>
+        </div>
+      </div>
+
       <!-- SAAS -->
       <div class="page" id="page-saas">
         <div class="stl"><i class="ti ti-rocket"></i>Uso do plano</div>
@@ -528,6 +545,12 @@ textarea{resize:vertical;min-height:52px}
 </div>
 
 <!-- ══ MODAIS ═══════════════════════════════════════════════ -->
+<!-- Conta bloqueada -->
+<div id="blocked-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--bg3)"><div class="auth-card" style="text-align:center"><i class="ti ti-lock" style="font-size:42px;color:var(--red-txt)"></i><div class="auth-logo" style="margin-top:10px">Acesso bloqueado</div><div class="auth-sub" id="blocked-msg">A assinatura desta empresa está bloqueada. Entre em contato com o administrador.</div><button class="btn-auth" onclick="doLogout()">Sair</button></div></div>
+
+<!-- Registro de pagamento SaaS -->
+<div class="mw" id="mw-admin-pagto"><div class="mo"><div class="mh"><h2><i class="ti ti-receipt"></i> Registrar pagamento</h2><button class="xb" onclick="fecharM('admin-pagto')">&times;</button></div><div class="mb"><div id="a-admin-pagto"></div><div style="font-size:13px;margin-bottom:12px">Empresa: <b id="admin-pagto-empresa">—</b></div><input type="hidden" id="admin-pagto-id"><div class="fg"><div class="f"><label>Valor (R$)</label><input id="admin-pagto-valor" type="number" min="0" step="0.01"></div><div class="f"><label>Data do pagamento</label><input id="admin-pagto-data" type="date"></div><div class="f"><label>Novo vencimento</label><input id="admin-pagto-venc" type="date"></div><div class="f"><label>Método</label><select id="admin-pagto-metodo"><option>PIX</option><option>Boleto</option><option>Cartão</option><option>Transferência</option><option>Dinheiro</option></select></div><div class="f s2"><label>Referência / comprovante</label><input id="admin-pagto-ref" placeholder="Número, ID ou referência"></div><div class="f s2"><label>Observações</label><textarea id="admin-pagto-ob"></textarea></div></div></div><div class="mf"><button class="btn" onclick="fecharM('admin-pagto')">Cancelar</button><button class="btn bp" id="btn-admin-pagto" onclick="salvarAdminPagamento()"><i class="ti ti-check"></i>Registrar pagamento</button></div></div></div>
+
 
 <!-- Produto -->
 <!-- Produto -->
@@ -1159,18 +1182,30 @@ async function loadUserContext() {
   ME = data; WS = data.workspaces;
 }
 
+function showBlocked() {
+  document.getElementById('loading-screen').classList.add('hide');
+  document.getElementById('auth-screen').classList.remove('show');
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('blocked-screen').style.display='flex';
+  document.getElementById('blocked-msg').textContent = WS?.motivo_bloqueio || 'A assinatura desta empresa está bloqueada. Entre em contato com o administrador.';
+}
+
 function showAuth() {
   document.getElementById('loading-screen').classList.add('hide');
   // Esconder setup screen se estiver visível
   const setup = document.getElementById('setup-screen');
   if (setup) setup.style.display = 'none';
+  document.getElementById('blocked-screen').style.display = 'none';
   document.getElementById('auth-screen').classList.add('show');
 }
 
 function showApp() {
   document.getElementById('loading-screen').classList.add('hide');
   document.getElementById('auth-screen').classList.remove('show');
+  if (WS?.status === 'bloqueado') { showBlocked(); return; }
+  document.getElementById('blocked-screen').style.display = 'none';
   document.getElementById('app').classList.add('show');
+  document.getElementById('ni-admin-saas').style.display = ME?.role === 'superadmin' ? '' : 'none';
   document.getElementById('ws-nm').textContent  = WS.nome;
   document.getElementById('ws-sub').textContent = ME.role;
   document.getElementById('s-nm').textContent   = ME.nome;
@@ -1318,7 +1353,7 @@ function nav(p) {
   document.querySelectorAll('.ni').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p)?.classList.add('active');
   document.getElementById('ni-'+p)?.classList.add('active');
-  const T = {dash:'Dashboard',pdv:'PDV',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace'};
+  const T = {dash:'Dashboard',pdv:'PDV',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace','admin-saas':'Central SaaS'};
   document.getElementById('pg-ttl').textContent = T[p]||p;
   const A = {
     prod:`<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`,
@@ -1331,7 +1366,7 @@ function nav(p) {
     cp:  `<button class="btn bp sm" onclick="openConta('cp')"><i class="ti ti-plus"></i>Nova conta</button>`,
   };
   document.getElementById('pg-act').innerHTML = A[p]||'';
-  const pages = {dash:rDash,pdv:rPdv,prod:rProd,cli:rCli,forn:rForn,vend:rVend,orc:rOrc,fin:rFin,cr:rCR,cp:rCP,pgto:rPgto,est:rEst,saas:rSaas};
+  const pages = {dash:rDash,pdv:rPdv,prod:rProd,cli:rCli,forn:rForn,vend:rVend,orc:rOrc,fin:rFin,cr:rCR,cp:rCP,pgto:rPgto,est:rEst,saas:rSaas,'admin-saas':rAdminSaas};
   if (pages[p]) pages[p]().catch(e=>console.error('[nav]',p,e));
 }
 
@@ -2293,6 +2328,37 @@ async function salvarWS(){
   document.getElementById('ws-nm').textContent=WS.nome;
   const el=document.getElementById('a-ws');el.textContent='✓ Salvo!';setTimeout(()=>{el.textContent='';},3000);
 }
+
+
+// ── CENTRAL ADMINISTRATIVA SAAS ─────────────────────────────
+let _adminSaasWorkspaces=[];
+async function rAdminSaas(){
+  const tb=document.getElementById('admin-saas-tb'); if(!tb)return;
+  try{
+    const {data,error}=await sb.rpc('admin_saas_listar_workspaces'); if(error)throw error;
+    _adminSaasWorkspaces=data||[]; renderAdminSaas();
+  }catch(e){
+    tb.innerHTML=`<tr><td colspan="7"><div class="alrt ad"><i class="ti ti-alert-circle"></i>${escapeHtml(e.message||'Não foi possível carregar a Central SaaS. Execute a migração SQL e promova seu usuário a superadmin.')}</div></td></tr>`;
+    document.getElementById('admin-saas-kpis').innerHTML='';
+  }
+}
+function renderAdminSaas(){
+  const total=_adminSaasWorkspaces.length, ativos=_adminSaasWorkspaces.filter(w=>w.status==='ativo').length, bloqueados=_adminSaasWorkspaces.filter(w=>w.status==='bloqueado').length, pendentes=_adminSaasWorkspaces.filter(w=>w.status==='pendente').length;
+  document.getElementById('admin-saas-kpis').innerHTML=[['Empresas',total,'ti-building'],['Ativas',ativos,'ti-circle-check'],['Pendentes',pendentes,'ti-clock'],['Bloqueadas',bloqueados,'ti-lock']].map(x=>`<div class="sc"><div class="sl"><i class="ti ${x[2]}"></i>${x[0]}</div><div class="sv">${x[1]}</div></div>`).join('');
+  filtrarAdminSaas();
+}
+function filtrarAdminSaas(){
+  const q=(document.getElementById('admin-saas-busca')?.value||'').toLowerCase(), st=document.getElementById('admin-saas-status')?.value||'';
+  const rows=_adminSaasWorkspaces.filter(w=>(!q||(w.nome||'').toLowerCase().includes(q))&&(!st||w.status===st));
+  const tb=document.getElementById('admin-saas-tb'); if(!rows.length){tb.innerHTML='<tr><td colspan="7" class="emp">Nenhuma empresa encontrada.</td></tr>';return;}
+  tb.innerHTML=rows.map(w=>{const venc=w.vencimento||'—', status=w.status||'ativo', cls=status==='ativo'?'st-ativo':status==='bloqueado'?'st-bloqueado':'st-pendente';return `<tr><td><b>${escapeHtml(w.nome||'Sem nome')}</b><small style="display:block;color:var(--txt2)">${w.total_usuarios||0} usuário(s) · ${R(w.receita_total||0)} em vendas</small></td><td>${escapeHtml(w.plano||'—')}</td><td><span class="saas-status ${cls}"><i class="ti ${status==='ativo'?'ti-circle-check':status==='bloqueado'?'ti-lock':'ti-clock'}"></i>${escapeHtml(status)}</span></td><td>${escapeHtml(venc)}</td><td>${w.total_usuarios||0}</td><td>${w.total_vendas||0}</td><td><div class="saas-actions">${status==='bloqueado'?`<button class="btn sm bsu" onclick="alterarStatusSaas('${w.id}','ativo')"><i class="ti ti-lock-open"></i>Liberar</button>`:`<button class="btn sm bda" onclick="abrirBloqueioSaas('${w.id}')"><i class="ti ti-lock"></i>Bloquear</button>`}<button class="btn sm bp" onclick="abrirAdminPagamento('${w.id}','${escapeHtml(w.nome||'')}','${w.valor_mensal||0}')"><i class="ti ti-cash"></i>Pagamento</button></div></td></tr>`;}).join('');
+}
+async function alterarStatusSaas(id,status,motivo=''){
+  try{const {error}=await sb.rpc('admin_saas_atualizar_workspace',{p_workspace_id:id,p_status:status,p_motivo:motivo});if(error)throw error;await rAdminSaas();mostrarToast(status==='ativo'?'Empresa liberada.':'Empresa bloqueada.','success');}catch(e){mostrarToast('Erro: '+e.message,'error');}
+}
+function abrirBloqueioSaas(id){const motivo=prompt('Motivo do bloqueio (opcional):','Pagamento pendente');if(motivo!==null)alterarStatusSaas(id,'bloqueado',motivo);}
+function abrirAdminPagamento(id,nome,valor){document.getElementById('admin-pagto-id').value=id;document.getElementById('admin-pagto-empresa').textContent=nome;document.getElementById('admin-pagto-valor').value=valor||'';document.getElementById('admin-pagto-data').value=hj();document.getElementById('admin-pagto-venc').value='';document.getElementById('admin-pagto-ref').value='';document.getElementById('admin-pagto-ob').value='';document.getElementById('a-admin-pagto').replaceChildren();abrirM('admin-pagto');}
+async function salvarAdminPagamento(){const btn=document.getElementById('btn-admin-pagto'),id=document.getElementById('admin-pagto-id').value,valor=parseFloat(document.getElementById('admin-pagto-valor').value)||0;if(valor<0){return;}btn.disabled=true;try{const {error}=await sb.rpc('admin_saas_registrar_pagamento',{p_workspace_id:id,p_valor:valor,p_data_pagamento:document.getElementById('admin-pagto-data').value||hj(),p_vencimento:document.getElementById('admin-pagto-venc').value||null,p_metodo:document.getElementById('admin-pagto-metodo').value,p_referencia:document.getElementById('admin-pagto-ref').value.trim()||null,p_observacoes:document.getElementById('admin-pagto-ob').value.trim()||null});if(error)throw error;fecharM('admin-pagto');await rAdminSaas();mostrarToast('Pagamento registrado e empresa liberada.','success');}catch(e){document.getElementById('a-admin-pagto').innerHTML=`<div class="alrt ad"><i class="ti ti-alert-circle"></i>${escapeHtml(e.message)}</div>`;}btn.disabled=false;}
 
 // ── EXCLUSÃO GENÉRICA ─────────────────────────────────────────
 async function excluir(tabela,id,paginaAlerta){
