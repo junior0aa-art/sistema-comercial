@@ -201,6 +201,25 @@ textarea{resize:vertical;min-height:52px}
 .mc-top i{font-size:16px}
 .mc-nm{font-size:12px;font-weight:600}
 .mc-ds{font-size:11px;color:var(--txt2)}
+
+/* ── PDV ───────────────────────────────────────────────── */
+.pdv-head{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#eff6ff,#fff);border:1px solid #bfdbfe;border-radius:var(--rad-lg);padding:13px 16px;margin-bottom:14px}
+.pdv-logo{width:48px;height:48px;border-radius:10px;border:1px dashed #93c5fd;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;color:var(--blue-txt);flex-shrink:0}
+.pdv-logo img{width:100%;height:100%;object-fit:contain}
+.pdv-brand{min-width:0;flex:1}.pdv-brand strong{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pdv-brand span{display:block;font-size:11px;color:var(--txt2);margin-top:2px}
+.pdv-head .btn{margin-left:auto}
+.pdv-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
+.pdv-products{min-height:470px}.pdv-tools{display:flex;gap:8px;margin-bottom:12px}.pdv-tools input{max-width:none}
+.pdv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px}
+.pdv-product{background:var(--bg);border:1px solid var(--bdr);border-radius:var(--rad);padding:12px;cursor:pointer;transition:transform .12s,border-color .12s,box-shadow .12s;min-height:108px;display:flex;flex-direction:column}
+.pdv-product:hover{border-color:var(--blue);box-shadow:0 2px 10px rgba(59,130,246,.14);transform:translateY(-1px)}
+.pdv-product:active{transform:translateY(0)}.pdv-product-name{font-weight:600;font-size:12px;line-height:1.35;flex:1}.pdv-product-code{font-size:10px;color:var(--txt3);margin-top:4px}.pdv-product-foot{display:flex;justify-content:space-between;align-items:end;margin-top:9px}.pdv-product-price{font-size:14px;font-weight:700;color:var(--blue-txt)}.pdv-product-stock{font-size:10px;color:var(--txt2)}
+.pdv-cart{position:sticky;top:10px}.pdv-cart .card-hd{margin-bottom:9px}.pdv-cart-body{max-height:290px;overflow-y:auto;border-top:1px solid var(--bdr);border-bottom:1px solid var(--bdr)}
+.pdv-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-bottom:1px solid var(--bdr);align-items:center}.pdv-line:last-child{border-bottom:0}.pdv-line-name{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pdv-line-meta{font-size:10px;color:var(--txt2);margin-top:2px}.pdv-line-actions{display:flex;align-items:center;gap:4px}.pdv-qty{min-width:22px;text-align:center;font-size:11px}.pdv-line-total{font-size:12px;font-weight:600;text-align:right}
+.pdv-totals{padding-top:10px}.pdv-total-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;margin:5px 0}.pdv-total-row.grand{font-size:19px;font-weight:700;color:var(--blue-txt);border-top:1px solid var(--bdr);padding-top:10px;margin-top:9px}.pdv-cart-actions{display:flex;gap:7px;margin-top:12px}.pdv-cart-actions .btn{flex:1;justify-content:center;padding:10px 8px}.pdv-empty{padding:34px 12px;text-align:center;color:var(--txt2);font-size:12px}
+.pdv-checkout-total{background:var(--blue-bg);border:1px solid #bfdbfe;border-radius:var(--rad);padding:15px;text-align:center;margin-bottom:14px}.pdv-checkout-total small{display:block;color:var(--blue-txt);font-size:11px}.pdv-checkout-total strong{display:block;font-size:28px;color:var(--blue-txt);margin-top:3px}.pdv-change{background:var(--green-bg);color:var(--green-txt);border:1px solid #86efac;border-radius:var(--rad);padding:10px;margin-top:10px;font-size:12px;display:none}.pdv-change.show{display:block}
+@media(max-width:900px){.pdv-layout{grid-template-columns:1fr}.pdv-cart{position:static}.pdv-cart-body{max-height:220px}}
+@media(max-width:560px){.pdv-head{align-items:flex-start}.pdv-head .btn{font-size:10px;padding:6px}.pdv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pdv-product{padding:9px}.pdv-brand strong{font-size:13px}}
 </style>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1d4ed8">
@@ -303,6 +322,7 @@ textarea{resize:vertical;min-height:52px}
     <div class="ni" onclick="nav('cli')" id="ni-cli"><i class="ti ti-users" aria-hidden="true"></i>Clientes</div>
     <div class="ni" onclick="nav('forn')" id="ni-forn"><i class="ti ti-truck" aria-hidden="true"></i>Fornecedores</div>
     <div class="ns">Operações</div>
+    <div class="ni" onclick="nav('pdv')" id="ni-pdv"><i class="ti ti-device-desktop-analytics" aria-hidden="true"></i>PDV</div>
     <div class="ni" onclick="nav('vend')" id="ni-vend"><i class="ti ti-shopping-cart" aria-hidden="true"></i>Vendas</div>
     <div class="ni" onclick="nav('orc')" id="ni-orc"><i class="ti ti-file-invoice" aria-hidden="true"></i>Orçamentos</div>
     <div class="ns">Financeiro</div>
@@ -375,6 +395,30 @@ textarea{resize:vertical;min-height:52px}
         <div id="a-forn"></div>
         <div class="sr"><input type="text" placeholder="Buscar fornecedor..." id="s-forn" oninput="filtrarForn()"><div style="margin-left:auto" id="act-forn"></div></div>
         <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:75px">Código</th><th>Empresa</th><th style="width:120px">CNPJ</th><th style="width:110px">Contato</th><th style="width:110px">Telefone</th><th style="width:95px">Ações</th></tr></thead><tbody id="tb-forn"><tr><td colspan="6" class="emp">Carregando...</td></tr></tbody></table></div></div>
+      </div>
+
+      <!-- PDV -->
+      <div class="page" id="page-pdv">
+        <div id="a-pdv"></div>
+        <div class="pdv-head">
+          <div class="pdv-logo" id="pdv-logo-box" onclick="document.getElementById('pdv-logo-file').click()" title="Clique para escolher a logo"><i class="ti ti-building-store" id="pdv-logo-icon"></i><img id="pdv-logo-img" style="display:none" alt="Logo da empresa"></div>
+          <input id="pdv-logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none" onchange="salvarLogoPdv(event)">
+          <div class="pdv-brand"><strong id="pdv-empresa">Ponto de venda</strong><span><i class="ti ti-shopping-cart"></i> Venda rápida · Clique em um produto para adicionar</span></div>
+          <button class="btn sm" onclick="document.getElementById('pdv-logo-file').click()"><i class="ti ti-photo"></i>Logo</button>
+        </div>
+        <div class="pdv-layout">
+          <div class="card pdv-products">
+            <div class="pdv-tools"><input id="pdv-busca" placeholder="Buscar produto por nome ou código..." oninput="filtrarPdv()" autocomplete="off"><button class="btn" onclick="document.getElementById('pdv-busca').value='';filtrarPdv()" title="Limpar busca"><i class="ti ti-x"></i></button></div>
+            <div id="pdv-grid" class="pdv-grid"><div class="pdv-empty">Carregando produtos...</div></div>
+          </div>
+          <div class="card pdv-cart">
+            <div class="card-hd"><div class="ct"><i class="ti ti-shopping-cart"></i>Carrinho</div><button class="btn sm" onclick="pdvLimpar()">Limpar</button></div>
+            <div class="f" style="margin-bottom:10px"><label>Cliente (opcional)</label><select id="pdv-cli"><option value="">Consumidor final</option></select></div>
+            <div id="pdv-cart-body" class="pdv-cart-body"><div class="pdv-empty">Nenhum produto adicionado.</div></div>
+            <div class="pdv-totals"><div class="pdv-total-row"><span>Subtotal</span><b id="pdv-subtotal">R$ 0,00</b></div><div class="f" style="margin:8px 0"><label>Desconto (R$)</label><input id="pdv-desc" type="number" min="0" step="0.01" value="0" oninput="renderPdvCarrinho()"></div><div class="pdv-total-row grand"><span>Total</span><strong id="pdv-total">R$ 0,00</strong></div></div>
+            <div class="pdv-cart-actions"><button class="btn" onclick="pdvLimpar()"><i class="ti ti-trash"></i>Cancelar</button><button class="btn bp" onclick="abrirPdvFechamento()"><i class="ti ti-cash"></i>Fechar venda</button></div>
+          </div>
+        </div>
       </div>
 
       <!-- VENDAS -->
@@ -563,6 +607,19 @@ textarea{resize:vertical;min-height:52px}
     </div>
   </div>
   <div class="mf"><button class="btn" onclick="fecharM('vnd')">Cancelar</button><button class="btn bp" id="btn-sv" onclick="salvarVnd()"><i class="ti ti-check"></i>Registrar</button></div>
+</div></div>
+
+<!-- Fechamento do PDV -->
+<div class="mw" id="mw-pdv-checkout"><div class="mo">
+  <div class="mh"><h2><i class="ti ti-cash"></i> Fechamento da venda</h2><button class="xb" onclick="fecharPdvFechamento()">&times;</button></div>
+  <div class="mb"><div id="a-pdv-checkout"></div>
+    <div class="pdv-checkout-total"><small>Total a pagar</small><strong id="pdv-checkout-total">R$ 0,00</strong></div>
+    <div class="fg"><div class="f"><label>Forma de pagamento</label><select id="pdv-pgto" onchange="atualizarPdvPagamento()"><option>Dinheiro</option><option>PIX</option><option>Cartão de débito</option><option>Cartão de crédito</option><option>A prazo</option></select></div><div class="f"><label>Data da venda</label><input id="pdv-data" type="date"></div></div>
+    <div id="pdv-dinheiro-box" style="margin-top:12px"><div class="f"><label>Valor recebido (R$)</label><input id="pdv-recebido" type="number" min="0" step="0.01" oninput="calcularPdvTroco()" placeholder="0,00"></div><div id="pdv-troco" class="pdv-change"></div></div>
+    <div id="pdv-prazo-box" style="display:none;margin-top:12px"><div class="f"><label>Vencimento</label><input id="pdv-venc" type="date"></div></div>
+    <div class="f" style="margin-top:12px"><label>Observações</label><textarea id="pdv-ob" placeholder="Observação da venda (opcional)"></textarea></div>
+  </div>
+  <div class="mf"><button class="btn" onclick="fecharPdvFechamento()">Voltar</button><button class="btn bp" id="btn-pdv-concluir" onclick="concluirPdv()"><i class="ti ti-check"></i>Confirmar venda</button></div>
 </div></div>
 
 <!-- Lançamento -->
@@ -1242,7 +1299,7 @@ function nav(p) {
   document.querySelectorAll('.ni').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p)?.classList.add('active');
   document.getElementById('ni-'+p)?.classList.add('active');
-  const T = {dash:'Dashboard',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace'};
+  const T = {dash:'Dashboard',pdv:'PDV',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace'};
   document.getElementById('pg-ttl').textContent = T[p]||p;
   const A = {
     prod:`<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`,
@@ -1255,7 +1312,7 @@ function nav(p) {
     cp:  `<button class="btn bp sm" onclick="openConta('cp')"><i class="ti ti-plus"></i>Nova conta</button>`,
   };
   document.getElementById('pg-act').innerHTML = A[p]||'';
-  const pages = {dash:rDash,prod:rProd,cli:rCli,forn:rForn,vend:rVend,orc:rOrc,fin:rFin,cr:rCR,cp:rCP,pgto:rPgto,est:rEst,saas:rSaas};
+  const pages = {dash:rDash,pdv:rPdv,prod:rProd,cli:rCli,forn:rForn,vend:rVend,orc:rOrc,fin:rFin,cr:rCR,cp:rCP,pgto:rPgto,est:rEst,saas:rSaas};
   if (pages[p]) pages[p]().catch(e=>console.error('[nav]',p,e));
 }
 
@@ -2228,6 +2285,118 @@ async function excluir(tabela,id,paginaAlerta){
     alrt(paginaAlerta,'Registro excluído.','s');
     updBadges();
   }catch(e){alrt(paginaAlerta,'Erro ao excluir: '+e.message,'d');}
+}
+
+
+// ── PDV ─────────────────────────────────────────────────────
+let _pdvProdutos = [];
+const PDV_LOGO_KEY = 'pdv_logo_';
+
+async function rPdv() {
+  document.getElementById('pdv-empresa').textContent = WS?.nome || 'Ponto de venda';
+  carregarLogoPdv();
+  try {
+    if (_isOnline) {
+      const res = await sb.from('produtos').select('*').eq('workspace_id',wsId()).order('nome');
+      if (res.error) throw res.error;
+      _pdvProdutos = res.data || [];
+      _produtos = _pdvProdutos;
+    } else {
+      _pdvProdutos = (await idbGetAll('produtos')).filter(p=>p.workspace_id===wsId()).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    }
+    if (_isOnline) { try { await idbClear('produtos'); for (const p of _pdvProdutos) await idbPut('produtos',p); } catch(e) {} }
+    renderPdvProdutos();
+    await carregarClientesPdv();
+    renderPdvCarrinho();
+  } catch(e) {
+    document.getElementById('pdv-grid').innerHTML = `<div class="pdv-empty">Erro ao carregar produtos: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderPdvProdutos() {
+  const grid = document.getElementById('pdv-grid');
+  if (!grid) return;
+  const q = (document.getElementById('pdv-busca')?.value || '').toLowerCase().trim();
+  const lista = _pdvProdutos.filter(p => !q || `${p.nome||''} ${p.codigo||''} ${p.codigo_barras||''}`.toLowerCase().includes(q));
+  if (!lista.length) { grid.innerHTML='<div class="pdv-empty">Nenhum produto encontrado.</div>'; return; }
+  grid.innerHTML = lista.map(p => `<button class="pdv-product" type="button" onclick="pdvAdicionar('${escapeHtml(p.id)}')" aria-label="Adicionar ${escapeHtml(p.nome)}">
+    <span class="pdv-product-name">${escapeHtml(p.nome||'Produto')}</span><span class="pdv-product-code">${escapeHtml(p.codigo||p.codigo_barras||'')}</span>
+    <span class="pdv-product-foot"><span class="pdv-product-price">${R(p.preco)}</span><span class="pdv-product-stock">Estoque: ${Number(p.estoque||0)}</span></span></button>`).join('');
+}
+function filtrarPdv(){ renderPdvProdutos(); }
+async function carregarClientesPdv() {
+  const sel = document.getElementById('pdv-cli'); if (!sel) return;
+  let lista = [];
+  try {
+    lista = _isOnline ? ((await sb.from('clientes').select('id,nome').eq('workspace_id',wsId()).order('nome')).data||[]) : (await idbGetAll('clientes')).filter(c=>c.workspace_id===wsId());
+  } catch(e) { lista = _clientes || []; }
+  sel.innerHTML='<option value="">Consumidor final</option>';
+  lista.forEach(c => sel.innerHTML += `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`);
+}
+function pdvAdicionar(id) {
+  const p = _pdvProdutos.find(x=>String(x.id)===String(id)); if (!p) return;
+  const ex = iV.findIndex(i=>String(i.produto_id)===String(id));
+  if (ex >= 0) iV[ex].quantidade += 1;
+  else iV.push({produto_id:p.id,nome_produto:p.nome,quantidade:1,preco_unitario:Number(p.preco||0)});
+  renderPdvCarrinho();
+}
+function pdvAlterarQtd(i, delta) {
+  if (!iV[i]) return; iV[i].quantidade += delta;
+  if (iV[i].quantidade <= 0) iV.splice(i,1);
+  renderPdvCarrinho();
+}
+function pdvLimpar() { iV=[]; document.getElementById('pdv-desc').value=0; renderPdvCarrinho(); }
+function pdvSubtotal() { return iV.reduce((sum,it)=>sum + Number(it.quantidade||0)*Number(it.preco_unitario||0),0); }
+function pdvTotal() { return Math.max(0,pdvSubtotal()-(parseFloat(document.getElementById('pdv-desc')?.value)||0)); }
+function renderPdvCarrinho() {
+  const body=document.getElementById('pdv-cart-body'); if(!body)return;
+  const sub=pdvSubtotal(), total=pdvTotal();
+  document.getElementById('pdv-subtotal').textContent=R(sub); document.getElementById('pdv-total').textContent=R(total);
+  if(!iV.length){body.innerHTML='<div class="pdv-empty">Nenhum produto adicionado.</div>';return;}
+  body.innerHTML=iV.map((it,i)=>`<div class="pdv-line"><div><div class="pdv-line-name">${escapeHtml(it.nome_produto)}</div><div class="pdv-line-meta">${R(it.preco_unitario)} × ${it.quantidade} = <b>${R(it.preco_unitario*it.quantidade)}</b></div></div><div class="pdv-line-actions"><button class="btn sm" onclick="pdvAlterarQtd(${i},-1)">−</button><span class="pdv-qty">${it.quantidade}</span><button class="btn sm" onclick="pdvAlterarQtd(${i},1)">+</button></div></div>`).join('');
+}
+function abrirPdvFechamento() {
+  if(!iV.length){mostrarToast('Adicione pelo menos um produto.','error');return;}
+  document.getElementById('pdv-checkout-total').textContent=R(pdvTotal());
+  document.getElementById('pdv-data').value=hj(); document.getElementById('pdv-recebido').value=''; document.getElementById('pdv-venc').value=hj(); document.getElementById('pdv-ob').value='';
+  document.getElementById('a-pdv-checkout').replaceChildren(); document.getElementById('pdv-pgto').value='Dinheiro'; atualizarPdvPagamento(); abrirM('pdv-checkout');
+  setTimeout(()=>document.getElementById('pdv-recebido')?.focus(),100);
+}
+function fecharPdvFechamento(){fecharM('pdv-checkout');}
+function atualizarPdvPagamento(){
+  const pg=document.getElementById('pdv-pgto').value, dinheiro=pg==='Dinheiro', prazo=pg==='A prazo';
+  document.getElementById('pdv-dinheiro-box').style.display=dinheiro?'':'none'; document.getElementById('pdv-prazo-box').style.display=prazo?'':'none';
+  if(dinheiro) calcularPdvTroco();
+}
+function calcularPdvTroco(){
+  const el=document.getElementById('pdv-troco'), recebido=parseFloat(document.getElementById('pdv-recebido')?.value)||0, total=pdvTotal();
+  if(recebido<=0){el.classList.remove('show');return;}
+  const troco=recebido-total; el.classList.add('show'); el.textContent=troco>=0?`Troco: ${R(troco)}`:`Faltam ${R(Math.abs(troco))}`; el.style.background=troco>=0?'var(--green-bg)':'var(--red-bg)'; el.style.color=troco>=0?'var(--green-txt)':'var(--red-txt)';
+}
+async function concluirPdv(){
+  if(!iV.length)return;
+  const btn=document.getElementById('btn-pdv-concluir'); if(btn.disabled)return;
+  const pg=document.getElementById('pdv-pgto').value, total=pdvTotal(), recebido=parseFloat(document.getElementById('pdv-recebido').value)||0;
+  if(pg==='Dinheiro' && recebido<total){document.getElementById('a-pdv-checkout').innerHTML='<div class="alrt ad"><i class="ti ti-alert-circle"></i>O valor recebido é menor que o total.</div>';return;}
+  if(pg==='A prazo' && !document.getElementById('pdv-cli').value){document.getElementById('a-pdv-checkout').innerHTML='<div class="alrt ad"><i class="ti ti-alert-circle"></i>Selecione um cliente para vendas a prazo.</div>';return;}
+  btn.disabled=true; btn.innerHTML='<span class="spin-inline"></span> Salvando...'; _operacaoEmAndamento=true;
+  try {
+    const data=document.getElementById('pdv-data').value||hj(), cliId=document.getElementById('pdv-cli').value||null, desc=parseFloat(document.getElementById('pdv-desc').value)||0;
+    const v=await dbInsert('vendas',{workspace_id:wsId(),cliente_id:cliId,data,total,desconto:desc,pagamento:pg,status:'Concluída',fin_status:pg==='A prazo'?'prazo':'pago',observacoes:document.getElementById('pdv-ob').value.trim()});
+    for(const it of iV){await dbInsert('venda_itens',{venda_id:v.id,...it});const p=_pdvProdutos.find(x=>String(x.id)===String(it.produto_id));if(p){const estoque=Math.max(0,Number(p.estoque||0)-Number(it.quantidade||0));await dbUpdate('produtos',p.id,{estoque});p.estoque=estoque;}}
+    if(pg==='A prazo') await dbInsert('contas_receber',{workspace_id:wsId(),cliente_id:cliId,descricao:'Venda '+String(v.id).slice(-6),vencimento:document.getElementById('pdv-venc').value||data,valor:total,status:'aberto',categoria:'Venda'});
+    else await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Venda '+String(v.id).slice(-6),tipo:'receita',categoria:'Vendas',valor:total,data,status:'confirmado',metodo:pg});
+    fecharPdvFechamento(); pdvLimpar(); await rPdv(); updBadges(); mostrarToast('Venda finalizada com sucesso!','success');
+  } catch(e) { document.getElementById('a-pdv-checkout').innerHTML=`<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro ao concluir: ${escapeHtml(e.message)}</div>`; }
+  _operacaoEmAndamento=false; btn.disabled=false; btn.innerHTML='<i class="ti ti-check"></i>Confirmar venda';
+}
+function carregarLogoPdv(){
+  const logo=localStorage.getItem(PDV_LOGO_KEY+(wsId()||'default')), img=document.getElementById('pdv-logo-img'), icon=document.getElementById('pdv-logo-icon');
+  if(logo){img.src=logo;img.style.display='block';icon.style.display='none';}else{img.removeAttribute('src');img.style.display='none';icon.style.display='block';}
+}
+function salvarLogoPdv(ev){
+  const file=ev.target.files?.[0]; if(!file)return; if(file.size>2*1024*1024){mostrarToast('A logo deve ter no máximo 2 MB.','error');ev.target.value='';return;}
+  const reader=new FileReader(); reader.onload=()=>{localStorage.setItem(PDV_LOGO_KEY+(wsId()||'default'),reader.result);carregarLogoPdv();mostrarToast('Logo salva neste navegador.','success');}; reader.readAsDataURL(file);
 }
 
 // ── INICIALIZAÇÃO ─────────────────────────────────────────────
