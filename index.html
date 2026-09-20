@@ -224,8 +224,8 @@ textarea{resize:vertical;min-height:52px}
       &nbsp;·&nbsp; <a href="#" onclick="resetConfig()" style="color:var(--blue-txt);font-size:11px">Reconfigurar</a>
     </div>
     <div class="auth-tabs">
-      <button class="auth-tab active" onclick="authTab('login')">Entrar</button>
-      <button class="auth-tab" onclick="authTab('register')">Criar conta</button>
+      <button class="auth-tab active" onclick="authTab('login', event)">Entrar</button>
+      <button class="auth-tab" onclick="authTab('register', event)">Criar conta</button>
     </div>
 
     <!-- LOGIN -->
@@ -674,6 +674,15 @@ const hj  = () => new Date().toISOString().split('T')[0];
 const mes = () => new Date().toISOString().slice(0,7);
 const wsId= () => WS?.id;
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function isNetworkError(error) {
+  const msg = String(error?.message || error || '');
+  return /fetch|failed|networkerror|network request|timeout/i.test(msg);
+}
+
 function setLoading(btnId, on, label='Salvar') {
   const btn = document.getElementById(btnId);
   if (!btn) return;
@@ -688,9 +697,15 @@ function alrt(id, msg, tipo) {
   if (!el) return;
   const ic = tipo==='s'?'ti-circle-check':tipo==='w'?'ti-alert-triangle':'ti-alert-circle';
   const cl = tipo==='s'?'as':tipo==='w'?'aw':'ad';
-  el.innerHTML = `<div class="alrt ${cl}"><i class="ti ${ic}"></i>${msg}</div>`;
-  if (tipo==='s') setTimeout(()=>{ el.innerHTML=''; }, 3000);
+  const box = document.createElement('div');
+  box.className = `alrt ${cl}`;
+  const icon = document.createElement('i');
+  icon.className = `ti ${ic}`;
+  box.append(icon, document.createTextNode(String(msg ?? '')));
+  el.replaceChildren(box);
+  if (tipo==='s') setTimeout(()=>{ el.replaceChildren(); }, 3000);
 }
+
 
 function abrirM(id) { document.getElementById('mw-'+id)?.classList.add('open'); }
 function fecharM(id) { document.getElementById('mw-'+id)?.classList.remove('open'); }
@@ -838,7 +853,7 @@ async function dbInsert(tabela, payload) {
     } catch(e) {
       _operacaoEmAndamento = false;
       // Só ativa offline se for erro de REDE (não erro de IDB ou SQL)
-      const isNetworkErr = e.message?.includes('fetch') || e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError');
+      const isNetworkErr = isNetworkError(e);
       if (isNetworkErr) {
         setTimeout(() => {
           if (!_operacaoEmAndamento) setOffline();
@@ -863,7 +878,7 @@ async function dbUpdate(tabela, id, payload) {
       return data;
     } catch(e) {
       _operacaoEmAndamento = false;
-      const isNetworkErr = e.message?.includes('fetch') || e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError');
+      const isNetworkErr = isNetworkError(e);
       if (isNetworkErr) {
         setTimeout(() => { if (!_operacaoEmAndamento) setOffline(); }, 2000);
         const arr = await idbGetAll(tabela);
@@ -884,10 +899,11 @@ async function dbUpdate(tabela, id, payload) {
 async function dbDeleteItem(tabela, id) {
   if (_isOnline) {
     try {
-      await sb.from(tabela).delete().eq('id',id);
+      const { error } = await sb.from(tabela).delete().eq('id',id);
+      if (error) throw error;
       await idbDelete(tabela, id);
     } catch(e) {
-      if (e.message?.includes('fetch')||e.message?.includes('Failed')) {
+      if (isNetworkError(e)) {
         setOffline(); await idbDelete(tabela,id); await enfileirarSync(tabela,'delete',{id}); return;
       }
       throw e;
@@ -957,21 +973,27 @@ async function tentarSincronizar() {
   if (!fila.length) return;
   const el = document.getElementById('sync-bar');
   if (el) el.style.display = 'flex';
+  let falhas = 0;
   for (const item of fila) {
     try {
       const { tabela, op, payload } = item;
       const p = { ...payload };
       if (p.id && String(p.id).startsWith('local_')) delete p.id;
-      if (op === 'insert') await sb.from(tabela).insert({ ...p, workspace_id: wsId() });
-      else if (op === 'update') { const { id, ...rest } = payload; if (id && !String(id).startsWith('local_')) await sb.from(tabela).update(rest).eq('id',id); }
-      else if (op === 'delete') { if (payload.id && !String(payload.id).startsWith('local_')) await sb.from(tabela).delete().eq('id',payload.id); }
+      let result = { error: null };
+      if (op === 'insert') result = await sb.from(tabela).insert({ ...p, workspace_id: wsId() });
+      else if (op === 'update') { const { id, ...rest } = payload; if (id && !String(id).startsWith('local_')) result = await sb.from(tabela).update(rest).eq('id',id); }
+      else if (op === 'delete') { if (payload.id && !String(payload.id).startsWith('local_')) result = await sb.from(tabela).delete().eq('id',payload.id); }
+      if (result?.error) throw result.error;
       await idbDelete('sync_queue', item.id);
-    } catch(e) {}
+    } catch(e) {
+      falhas++;
+      console.warn('[Sync] Item mantido na fila:', item.tabela, e.message);
+    }
   }
   if (el) el.style.display = 'none';
   await cachearTudo();
   atualizarBadgeSync();
-  mostrarToast('✅ Dados sincronizados!', 'success');
+  mostrarToast(falhas ? `⚠️ ${falhas} item(ns) aguardando sincronização.` : '✅ Dados sincronizados!', falhas ? 'error' : 'success');
   const pg = document.getElementById('pg-ttl')?.textContent;
   const m  = {Dashboard:'dash',Produtos:'prod',Clientes:'cli',Fornecedores:'forn',Vendas:'vend',Orçamentos:'orc','Fluxo de caixa':'fin','Contas a receber':'cr','Contas a pagar':'cp',Pagamentos:'pgto','Controle de estoque':'est'};
   if (pg && m[pg]) nav(m[pg]);
@@ -1004,7 +1026,8 @@ async function salvarConfig() {
   btn.innerHTML = '<span class="spin-inline"></span> Testando conexão...';
   try {
     const testSb = createClient(url, key);
-    await testSb.from('workspaces').select('id').limit(1);
+    const { error: testError } = await testSb.from('workspaces').select('id').limit(1);
+    if (testError) throw testError;
     localStorage.setItem(CFG_URL_KEY, url);
     localStorage.setItem(CFG_KEY_KEY, key);
     initSb();
@@ -1086,10 +1109,10 @@ function showApp() {
   setTimeout(() => cachearTudo().then(()=>atualizarBadgeSync()).catch(()=>{}), 800);
 }
 
-function authTab(t) {
+function authTab(t, ev) {
   document.querySelectorAll('.auth-tab').forEach(x => x.classList.remove('active'));
   document.querySelectorAll('.auth-form').forEach(x => x.classList.remove('show'));
-  event.target.classList.add('active');
+  ev?.currentTarget?.classList.add('active');
   document.getElementById('form-' + t).classList.add('show');
 }
 
@@ -1111,7 +1134,7 @@ async function doLogin() {
     showApp();
   } catch(e) {
     let msg = 'Erro ao entrar.';
-    if (e.message?.includes('fetch') || e.message?.includes('Failed'))
+    if (isNetworkError(e))
       msg = 'Erro de conexão. Verifique sua internet.';
     else if (e.message?.includes('Invalid login') || e.message?.includes('invalid_credentials'))
       msg = 'E-mail ou senha incorretos. Verifique e tente novamente.';
@@ -1306,7 +1329,7 @@ async function rDash() {
     const uv = [...vArr].sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||'')).slice(0,5);
     if (elV) elV.innerHTML = uv.length
       ? '<table><thead><tr><th style="width:60px">#</th><th>Cliente</th><th style="width:95px">Total</th></tr></thead><tbody>'
-        +uv.map(x=>`<tr><td><small style="color:var(--txt2)">${String(x.id||'').slice(-6)}</small></td><td>${x.clientes?.nome||'—'}</td><td>${R(x.total)}</td></tr>`).join('')+'</tbody></table>'
+        +uv.map(x=>`<tr><td><small style="color:var(--txt2)">${String(x.id||'').slice(-6)}</small></td><td>${escapeHtml(x.clientes?.nome||'—')}</td><td>${R(x.total)}</td></tr>`).join('')+'</tbody></table>'
       : '<div class="emp">Nenhuma venda ainda.</div>';
     const als=[];
     if (crV) als.push({m:`${crV} conta(s) a receber vencida(s)`,t:'d',i:'ti-alert-circle'});
@@ -1383,7 +1406,7 @@ async function openProd(id=null) {
   }
   const sf = document.getElementById('p-for');
   sf.innerHTML = '<option value="">— Sem fornecedor —</option>';
-  _fornecedores.forEach(f=>{ sf.innerHTML+=`<option value="${f.id}">${f.nome}</option>`; });
+  _fornecedores.forEach(f=>{ sf.innerHTML+=`<option value="${escapeHtml(f.id)}">${escapeHtml(f.nome)}</option>`; });
   if (id) {
     const p = _produtos.find(x=>x.id===id);
     if (p) {
@@ -1687,10 +1710,10 @@ function openVnd(modo) {
   document.getElementById('a-mvnd').innerHTML='';
   const sc=document.getElementById('v-cli');
   sc.innerHTML='<option value="">— Sem cliente —</option>';
-  _clientes.forEach(c=>{sc.innerHTML+=`<option value="${c.id}">${c.nome}</option>`;});
+  _clientes.forEach(c=>{sc.innerHTML+=`<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`;});
   const sp=document.getElementById('vi-p');
   sp.innerHTML='<option value="">— Selecionar produto —</option>';
-  _produtos.forEach(p=>{sp.innerHTML+=`<option value="${p.id}">${p.nome} · ${R(p.preco)} (est: ${p.estoque})</option>`;});
+  _produtos.forEach(p=>{sp.innerHTML+=`<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome)} · ${R(p.preco)} (est: ${p.estoque})</option>`;});
   document.getElementById('vi-q').value=1;
   document.getElementById('vi-pr').value='';
   rItens();
@@ -1852,13 +1875,13 @@ async function finalizarOrcamentoComoVenda(orcId) {
     // Preencher cliente
     const sc = document.getElementById('v-cli');
     sc.innerHTML = '<option value="">— Sem cliente —</option>';
-    _clientes.forEach(c => { sc.innerHTML += `<option value="${c.id}">${c.nome}</option>`; });
+    _clientes.forEach(c => { sc.innerHTML += `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`; });
     if (o.cliente_id) sc.value = o.cliente_id;
 
     // Preencher produtos no select
     const sp = document.getElementById('vi-p');
     sp.innerHTML = '<option value="">— Selecionar produto —</option>';
-    _produtos.forEach(p => { sp.innerHTML += `<option value="${p.id}">${p.nome} · ${R(p.preco)}</option>`; });
+    _produtos.forEach(p => { sp.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome)} · ${R(p.preco)}</option>`; });
 
     // Guardar o ID do orçamento para marcar como Concluído ao salvar
     document.getElementById('btn-sv').dataset.orcId = orcId;
@@ -2019,7 +2042,7 @@ async function openConta(tipo,id=null){
   document.getElementById('a-mconta').innerHTML='';
   const sel=document.getElementById('ct-ent');
   sel.innerHTML='<option value="">— Selecionar —</option>';
-  (tipo==='cr'?_clientes:_fornecedores).forEach(x=>{sel.innerHTML+=`<option value="${x.id}">${x.nome}</option>`;});
+  (tipo==='cr'?_clientes:_fornecedores).forEach(x=>{sel.innerHTML+=`<option value="${escapeHtml(x.id)}">${escapeHtml(x.nome)}</option>`;});
   ['ct-ds','ct-vc','ct-vl','ct-ob'].forEach(fid=>{const e=document.getElementById(fid);if(e)e.value='';});
   document.getElementById('ct-vc').value=hj();
   if(id){
