@@ -220,6 +220,19 @@ textarea{resize:vertical;min-height:52px}
 .pdv-checkout-total{background:var(--blue-bg);border:1px solid #bfdbfe;border-radius:var(--rad);padding:15px;text-align:center;margin-bottom:14px}.pdv-checkout-total small{display:block;color:var(--blue-txt);font-size:11px}.pdv-checkout-total strong{display:block;font-size:28px;color:var(--blue-txt);margin-top:3px}.pdv-change{background:var(--green-bg);color:var(--green-txt);border:1px solid #86efac;border-radius:var(--rad);padding:10px;margin-top:10px;font-size:12px;display:none}.pdv-change.show{display:block}
 @media(max-width:900px){.pdv-layout{grid-template-columns:1fr}.pdv-cart{position:static}.pdv-cart-body{max-height:220px}}
 @media(max-width:560px){.pdv-head{align-items:flex-start}.pdv-head .btn{font-size:10px;padding:6px}.pdv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pdv-product{padding:9px}.pdv-brand strong{font-size:13px}}
+
+/* ── Comprovante não fiscal ───────────────────────────── */
+.receipt-preview{width:330px;max-width:100%;margin:0 auto;background:#fff;color:#111;border:1px solid var(--bdr);padding:18px 16px;font-family:"Courier New",monospace;font-size:11px;line-height:1.45}
+.receipt-head{text-align:center;border-bottom:1px dashed #777;padding-bottom:10px;margin-bottom:9px}.receipt-logo{display:block;max-width:100px;max-height:52px;object-fit:contain;margin:0 auto 7px}.receipt-company{font-size:15px;font-weight:700;word-break:break-word}.receipt-sub{font-size:10px;color:#555}.receipt-row{display:flex;justify-content:space-between;gap:10px}.receipt-items{border-top:1px dashed #777;border-bottom:1px dashed #777;margin:9px 0;padding:7px 0}.receipt-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin:4px 0}.receipt-item-name{word-break:break-word}.receipt-item-meta{color:#444;text-align:right;white-space:nowrap}.receipt-total{font-size:15px;font-weight:700;margin-top:6px}.receipt-foot{text-align:center;border-top:1px dashed #777;margin-top:10px;padding-top:9px;font-size:10px;color:#444}.receipt-actions{display:flex;gap:8px;justify-content:center;margin-top:14px}.receipt-actions .btn{min-width:130px;justify-content:center}
+#pdv-receipt-print{display:none}
+@media print{
+  body *{visibility:hidden!important}
+  #pdv-receipt-print,#pdv-receipt-print *{visibility:visible!important}
+  #pdv-receipt-print{display:block!important;position:absolute;left:0;top:0;width:80mm;border:0;padding:3mm;background:#fff;color:#111}
+  .receipt-preview{width:100%;border:0;padding:0;font-size:10px}
+  .receipt-actions{display:none!important}
+  @page{size:80mm auto;margin:4mm}
+}
 </style>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1d4ed8">
@@ -620,6 +633,12 @@ textarea{resize:vertical;min-height:52px}
     <div class="f" style="margin-top:12px"><label>Observações</label><textarea id="pdv-ob" placeholder="Observação da venda (opcional)"></textarea></div>
   </div>
   <div class="mf"><button class="btn" onclick="fecharPdvFechamento()">Voltar</button><button class="btn bp" id="btn-pdv-concluir" onclick="concluirPdv()"><i class="ti ti-check"></i>Confirmar venda</button></div>
+</div></div>
+
+<!-- Comprovante não fiscal -->
+<div class="mw" id="mw-pdv-receipt"><div class="mo">
+  <div class="mh"><h2><i class="ti ti-receipt"></i> Comprovante da venda</h2><button class="xb" onclick="fecharComprovantePdv()">&times;</button></div>
+  <div class="mb"><div class="alrt as"><i class="ti ti-circle-check"></i>Venda concluída. Este comprovante não possui validade fiscal.</div><div id="pdv-receipt-print"><div id="pdv-receipt-preview" class="receipt-preview"></div></div><div class="receipt-actions"><button class="btn" onclick="fecharComprovantePdv()">Fechar</button><button class="btn bp" onclick="imprimirComprovantePdv()"><i class="ti ti-printer"></i>Imprimir comprovante</button></div></div>
 </div></div>
 
 <!-- Lançamento -->
@@ -2386,10 +2405,34 @@ async function concluirPdv(){
     for(const it of iV){await dbInsert('venda_itens',{venda_id:v.id,...it});const p=_pdvProdutos.find(x=>String(x.id)===String(it.produto_id));if(p){const estoque=Math.max(0,Number(p.estoque||0)-Number(it.quantidade||0));await dbUpdate('produtos',p.id,{estoque});p.estoque=estoque;}}
     if(pg==='A prazo') await dbInsert('contas_receber',{workspace_id:wsId(),cliente_id:cliId,descricao:'Venda '+String(v.id).slice(-6),vencimento:document.getElementById('pdv-venc').value||data,valor:total,status:'aberto',categoria:'Venda'});
     else await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Venda '+String(v.id).slice(-6),tipo:'receita',categoria:'Vendas',valor:total,data,status:'confirmado',metodo:pg});
-    fecharPdvFechamento(); pdvLimpar(); await rPdv(); updBadges(); mostrarToast('Venda finalizada com sucesso!','success');
+    const clienteSelecionado=document.getElementById('pdv-cli');
+    prepararComprovantePdv({venda:v,itens:iV.map(it=>({...it})),data,total,pagamento:pg,recebido,cliente:{nome:clienteSelecionado?.selectedOptions?.[0]?.textContent||'Consumidor final'}});
+    fecharPdvFechamento(); pdvLimpar(); await rPdv(); updBadges(); abrirComprovantePdv(); mostrarToast('Venda finalizada com sucesso!','success');
   } catch(e) { document.getElementById('a-pdv-checkout').innerHTML=`<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro ao concluir: ${escapeHtml(e.message)}</div>`; }
   _operacaoEmAndamento=false; btn.disabled=false; btn.innerHTML='<i class="ti ti-check"></i>Confirmar venda';
 }
+
+function prepararComprovantePdv({venda,itens,data,total,pagamento,recebido,cliente}) {
+  const preview=document.getElementById('pdv-receipt-preview'); if(!preview)return;
+  const rawLogo=localStorage.getItem(PDV_LOGO_KEY+(wsId()||'default'))||'';
+  const logo=/^data:image\//.test(rawLogo)?`<img class="receipt-logo" src="${rawLogo}" alt="Logo">`:'';
+  const troco=pagamento==='Dinheiro'?Math.max(0,(recebido||0)-total):0;
+  const clienteNome=cliente?.nome||'Consumidor final';
+  preview.innerHTML=`<div class="receipt-head">${logo}<div class="receipt-company">${escapeHtml(WS?.nome||'Sistema Comercial')}</div><div class="receipt-sub">COMPROVANTE NÃO FISCAL</div><div class="receipt-sub">Venda #${escapeHtml(String(venda?.id||'').slice(-8))} · ${escapeHtml(data)}</div></div>
+    <div class="receipt-row"><span>Cliente:</span><b>${escapeHtml(clienteNome)}</b></div>
+    <div class="receipt-items">${itens.map(it=>`<div class="receipt-item"><span class="receipt-item-name">${escapeHtml(it.nome_produto)}<br><small>${it.quantidade} × ${R(it.preco_unitario)}</small></span><b class="receipt-item-meta">${R(it.quantidade*it.preco_unitario)}</b></div>`).join('')}</div>
+    <div class="receipt-row"><span>Subtotal</span><span>${R(itens.reduce((s,it)=>s+it.quantidade*it.preco_unitario,0))}</span></div>
+    ${Number(venda?.desconto||0)>0?`<div class="receipt-row"><span>Desconto</span><span>- ${R(venda.desconto)}</span></div>`:''}
+    <div class="receipt-row receipt-total"><span>TOTAL</span><span>${R(total)}</span></div>
+    <div class="receipt-row"><span>Pagamento</span><span>${escapeHtml(pagamento)}</span></div>
+    ${pagamento==='Dinheiro'?`<div class="receipt-row"><span>Recebido</span><span>${R(recebido)}</span></div><div class="receipt-row"><span>Troco</span><span>${R(troco)}</span></div>`:''}
+    ${pagamento==='A prazo'?`<div class="receipt-row"><span>Vencimento</span><span>${escapeHtml(document.getElementById('pdv-venc')?.value||data)}</span></div>`:''}
+    <div class="receipt-foot">Obrigado pela preferência!<br>Documento sem valor fiscal.</div>`;
+}
+function abrirComprovantePdv(){abrirM('pdv-receipt');}
+function fecharComprovantePdv(){fecharM('pdv-receipt');}
+function imprimirComprovantePdv(){window.print();}
+
 function carregarLogoPdv(){
   const logo=localStorage.getItem(PDV_LOGO_KEY+(wsId()||'default')), img=document.getElementById('pdv-logo-img'), icon=document.getElementById('pdv-logo-icon');
   if(logo){img.src=logo;img.style.display='block';icon.style.display='none';}else{img.removeAttribute('src');img.style.display='none';icon.style.display='block';}
