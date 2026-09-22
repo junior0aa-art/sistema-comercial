@@ -887,12 +887,12 @@ const IDB_NAME = 'sistema_comercial_v1';
 let _dbLocal = null;
 const STORES = ['produtos','clientes','fornecedores','vendas','venda_itens',
                 'orcamentos','orcamento_itens','lancamentos',
-                'contas_receber','contas_pagar','mov_estoque','sync_queue'];
+                'contas_receber','contas_pagar','mov_estoque','venda_pagamentos','sync_queue'];
 
 function abrirIDB() {
   return new Promise((resolve, reject) => {
     if (_dbLocal) { resolve(_dbLocal); return; }
-    const req = indexedDB.open(IDB_NAME, 2); // v2: adiciona venda_itens, orcamento_itens, mov_estoque
+    const req = indexedDB.open(IDB_NAME, 3); // v3: adiciona venda_pagamentos
     req.onupgradeneeded = e => {
       const db = e.target.result;
       STORES.forEach(s => { if (!db.objectStoreNames.contains(s)) db.createObjectStore(s,{keyPath:'id'}); });
@@ -2463,13 +2463,17 @@ function abrirPdvFechamento() {
 function fecharPdvFechamento(){fecharM('pdv-checkout');}
 function adicionarPagamentoPdv(metodo='PIX') { pdvPagamentos.push({metodo,valor:0}); renderPdvPagamentos(); }
 function removerPagamentoPdv(i){if(pdvPagamentos.length<=1)return;pdvPagamentos.splice(i,1);renderPdvPagamentos();}
-function atualizarPagamentoPdv(i,field,value){pdvPagamentos[i][field]=field==='valor'?Math.max(0,parseFloat(value)||0):value;renderPdvPagamentos(false);if(pdvPagamentos[i].metodo==='PIX')gerarPixPdv(i);}
-function renderPdvPagamentos(focus=true){
-  const list=document.getElementById('pdv-pagamentos-list');if(!list)return;
-  list.innerHTML=pdvPagamentos.map((p,i)=>`<div class="pdv-payment-row"><div class="f"><label>Forma ${i+1}</label><select onchange="atualizarPagamentoPdv(${i},'metodo',this.value)">${['Dinheiro','PIX','Cartão de débito','Cartão de crédito','Boleto','A prazo'].map(x=>`<option ${x===p.metodo?'selected':''}>${x}</option>`).join('')}</select></div><div class="f"><label>Valor (R$)</label><input type="number" min="0" step="0.01" value="${p.valor||''}" oninput="atualizarPagamentoPdv(${i},'valor',this.value)" placeholder="0,00"></div><button class="btn sm pdv-payment-remove" onclick="removerPagamentoPdv(${i})" title="Remover forma"><i class="ti ti-trash"></i></button></div>`).join('');
-  const total=pdvTotal(),sum=pdvPagamentos.reduce((a,p)=>a+Number(p.valor||0),0),el=document.getElementById('pdv-pagamentos-total');el.className='pdv-payment-total '+(Math.abs(sum-total)<.01?'ok':'bad');el.innerHTML=`<span>Distribuído: ${R(sum)} / Total: ${R(total)}</span><strong>${Math.abs(sum-total)<.01?'OK':(sum<total?'Falta '+R(total-sum):'Excede '+R(sum-total))}</strong>`;
-  const cash=pdvPagamentos.some(p=>p.metodo==='Dinheiro'),due=pdvPagamentos.some(p=>p.metodo==='A prazo');document.getElementById('pdv-dinheiro-box').style.display=cash?'':'none';document.getElementById('pdv-prazo-box').style.display=due?'':'none';if(cash)calcularPdvTroco();
+function atualizarPagamentoPdv(i,field,value){pdvPagamentos[i][field]=field==='valor'?Math.max(0,parseFloat(value)||0):value;atualizarResumoPagamentosPdv();if(pdvPagamentos[i].metodo==='PIX')gerarPixPdv(i);}
+function atualizarResumoPagamentosPdv(){
+  const total=pdvTotal(),sum=pdvPagamentos.reduce((a,p)=>a+Number(p.valor||0),0),el=document.getElementById('pdv-pagamentos-total');if(!el)return;el.className='pdv-payment-total '+(Math.abs(sum-total)<.01?'ok':'bad');el.innerHTML=`<span>Distribuído: ${R(sum)} / Total: ${R(total)}</span><strong>${Math.abs(sum-total)<.01?'OK':(sum<total?'Falta '+R(total-sum):'Excede '+R(sum-total))}</strong>`;
+  const cash=pdvPagamentos.some(p=>p.metodo==='Dinheiro'),due=pdvPagamentos.some(p=>p.metodo==='A prazo');document.getElementById('pdv-dinheiro-box').style.display=cash?'':'none';document.getElementById('pdv-prazo-box').style.display=due?'':'none';if(cash)calcularPdvTroco();if(!pdvPagamentos.some(p=>p.metodo==='PIX'))document.getElementById('pdv-pix-box').style.display='none';
 }
+function renderPdvPagamentos(){
+  const list=document.getElementById('pdv-pagamentos-list');if(!list)return;
+  list.innerHTML=pdvPagamentos.map((p,i)=>`<div class="pdv-payment-row"><div class="f"><label>Forma ${i+1}</label><select onchange="atualizarPagamentoPdv(${i},'metodo',this.value);renderPdvPagamentos()">${['Dinheiro','PIX','Cartão de débito','Cartão de crédito','Boleto','A prazo'].map(x=>`<option ${x===p.metodo?'selected':''}>${x}</option>`).join('')}</select></div><div class="f"><label>Valor (R$)</label><input type="number" min="0" step="0.01" value="${p.valor||''}" oninput="atualizarPagamentoPdv(${i},'valor',this.value)" placeholder="0,00"></div><button class="btn sm pdv-payment-remove" onclick="removerPagamentoPdv(${i})" title="Remover forma"><i class="ti ti-trash"></i></button></div>`).join('');
+  atualizarResumoPagamentosPdv();
+}
+
 function calcularPdvTroco(){const el=document.getElementById('pdv-troco'),received=parseFloat(document.getElementById('pdv-recebido')?.value)||0,cash=pdvPagamentos.filter(p=>p.metodo==='Dinheiro').reduce((a,p)=>a+Number(p.valor||0),0);if(received<=0){el.classList.remove('show');return;}const change=received-cash;el.classList.add('show');el.textContent=change>=0?`Troco: ${R(change)}`:`Faltam ${R(Math.abs(change))}`;el.style.background=change>=0?'var(--green-bg)':'var(--red-bg)';el.style.color=change>=0?'var(--green-txt)':'var(--red-txt)';}
 function crc16Pix(str){let crc=0xFFFF;for(let i=0;i<str.length;i++){crc^=str.charCodeAt(i)<<8;for(let j=0;j<8;j++)crc=(crc&0x8000)?((crc<<1)^0x1021)&0xFFFF:(crc<<1)&0xFFFF;}return crc.toString(16).toUpperCase().padStart(4,'0');}
 function pixAscii(v,max){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9 .\-]/g,'').trim().slice(0,max)||'NA';}
@@ -2488,11 +2492,11 @@ async function concluirPdv(){
   btn.disabled=true;btn.innerHTML='<span class="spin-inline"></span> Salvando...';_operacaoEmAndamento=true;
   try{const data=document.getElementById('pdv-data').value||hj(),cliId=document.getElementById('pdv-cli').value||null,desc=parseFloat(document.getElementById('pdv-desc').value)||0,methods=pdvPagamentos.map(p=>p.metodo).join(' + '),v=await dbInsert('vendas',{workspace_id:wsId(),cliente_id:cliId,data,total,desconto:desc,pagamento:methods,status:'Concluída',fin_status:hasDue?'prazo':'pago',observacoes:document.getElementById('pdv-ob').value.trim()});
     for(const it of iV){await dbInsert('venda_itens',{venda_id:v.id,...it});const p=_pdvProdutos.find(x=>String(x.id)===String(it.produto_id));if(p){const estoque=Math.max(0,Number(p.estoque||0)-Number(it.quantidade||0));await dbUpdate('produtos',p.id,{estoque});p.estoque=estoque;}}
-    for(const p of pdvPagamentos){try{await dbInsert('venda_pagamentos',{venda_id:v.id,workspace_id:wsId(),metodo:p.metodo,valor:Number(p.valor||0),valor_recebido:p.metodo==='Dinheiro'?received:null,troco:p.metodo==='Dinheiro'?Math.max(0,received-cashTotal):0});}catch(e){console.warn('Pagamentos divididos: execute supabase_pix_pagamentos.sql',e);}}
+    let pagamentosDetalhados=true;for(const p of pdvPagamentos){try{await dbInsert('venda_pagamentos',{venda_id:v.id,workspace_id:wsId(),metodo:p.metodo,valor:Number(p.valor||0),valor_recebido:p.metodo==='Dinheiro'?received:null,troco:p.metodo==='Dinheiro'?Math.max(0,received-cashTotal):0});}catch(e){pagamentosDetalhados=false;console.warn('Pagamentos divididos: execute supabase_pix_pagamentos.sql',e);}}
     for(const p of pdvPagamentos.filter(x=>x.metodo!=='A prazo'))await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Venda '+String(v.id).slice(-6)+' - '+p.metodo,tipo:'receita',categoria:'Vendas',valor:Number(p.valor||0),data,status:'confirmado',metodo:p.metodo});
     if(hasDue){const due=pdvPagamentos.filter(x=>x.metodo==='A prazo').reduce((a,p)=>a+Number(p.valor||0),0);await dbInsert('contas_receber',{workspace_id:wsId(),cliente_id:cliId,descricao:'Venda '+String(v.id).slice(-6),vencimento:document.getElementById('pdv-venc').value||data,valor:due,status:'aberto',categoria:'Venda'});}
-    const clienteSelecionado=document.getElementById('pdv-cli');prepararComprovantePdv({venda:v,itens:iV.map(it=>({...it})),data,total,pagamentos:pdvPagamentos,recebido,cliente:{nome:clienteSelecionado?.selectedOptions?.[0]?.textContent||'Consumidor final'}});fecharPdvFechamento();pdvLimpar();await rPdv();updBadges();abrirComprovantePdv();mostrarToast('Venda finalizada com sucesso!','success');
-  }catch(e){document.getElementById('a-pdv-checkout').innerHTML=`<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro ao concluir: ${escapeHtml(e.message)}</div>`;}
+    const clienteSelecionado=document.getElementById('pdv-cli');if(!pagamentosDetalhados)mostrarToast('Venda salva. Execute a migração SQL para registrar o detalhamento dos pagamentos.','error');prepararComprovantePdv({venda:v,itens:iV.map(it=>({...it})),data,total,pagamentos:pdvPagamentos,recebido,cliente:{nome:clienteSelecionado?.selectedOptions?.[0]?.textContent||'Consumidor final'}});fecharPdvFechamento();pdvLimpar();await rPdv();updBadges();abrirComprovantePdv();mostrarToast('Venda finalizada com sucesso!','success');
+  }catch(e){const raw=String(e?.message||e||'Erro desconhecido');const msg=/fetch|network|comunicação/i.test(raw)?'Sem comunicação com o servidor. Verifique a internet e tente novamente.':/relation .* does not exist|venda_pagamentos/i.test(raw)?'A migração de pagamentos divididos ainda não foi executada no Supabase.':raw;document.getElementById('a-pdv-checkout').innerHTML=`<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro ao concluir: ${escapeHtml(msg)}</div>`;}
   _operacaoEmAndamento=false;btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i>Confirmar venda';
 }
 
