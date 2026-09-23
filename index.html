@@ -355,6 +355,7 @@ textarea{resize:vertical;min-height:52px}
     <div class="ni" onclick="nav('est')" id="ni-est"><i class="ti ti-box" aria-hidden="true"></i>Controle de estoque<span class="nbadge" id="b-est" style="display:none">!</span></div>
     <div class="ns">Sistema</div>
     <div class="ni" onclick="nav('saas')" id="ni-saas"><i class="ti ti-settings" aria-hidden="true"></i>Plano & workspace</div>
+    <div class="ni" onclick="exportarBackup()" id="ni-backup" title="Baixar backup desta empresa"><i class="ti ti-database-export" aria-hidden="true"></i>Backup</div>
     <div class="ni" onclick="nav('admin-saas')" id="ni-admin-saas" style="display:none"><i class="ti ti-shield-lock" aria-hidden="true"></i>Central SaaS</div>
     <div class="sf">
       <div class="urow">
@@ -1365,7 +1366,7 @@ function nav(p) {
   document.querySelectorAll('.ni').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p)?.classList.add('active');
   document.getElementById('ni-'+p)?.classList.add('active');
-  const T = {dash:'Dashboard',pdv:'PDV',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace','admin-saas':'Central SaaS'};
+  const T = {dash:'Dashboard',pdv:'PDV',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace',backup:'Backup','admin-saas':'Central SaaS'};
   document.getElementById('pg-ttl').textContent = T[p]||p;
   const A = {
     prod:`<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`,
@@ -2260,6 +2261,48 @@ async function confirmarAdj(){
     fecharM('adj');await rEst();alrt('est','Estoque ajustado!','s');updBadges();
   }catch(e){alrt('est','Erro: '+e.message,'d');}
   setLoading('btn-adj',false,'Confirmar');
+}
+
+// ── BACKUP DA EMPRESA ─────────────────────────────────────────
+const BACKUP_TABLES = ['produtos','clientes','fornecedores','vendas','orcamentos','lancamentos','contas_receber','contas_pagar','mov_estoque','venda_pagamentos'];
+async function backupRowsOnline(table){
+  const {data,error}=await sb.from(table).select('*').eq('workspace_id',wsId());
+  if(error){if(table==='venda_pagamentos'&&/relation .* does not exist|could not find the table/i.test(error.message||''))return [];throw new Error(`${table}: ${error.message}`);}
+  return data||[];
+}
+async function backupChildRowsOnline(table,column,ids){
+  if(!ids.length)return [];
+  const {data,error}=await sb.from(table).select('*').in(column,ids);
+  if(error)throw new Error(`${table}: ${error.message}`);
+  return data||[];
+}
+async function exportarBackup(){
+  if(!WS?.id){mostrarToast('Nenhuma empresa carregada para fazer backup.','error');return;}
+  mostrarToast('Preparando backup da empresa...','info');
+  try{
+    const backup={
+      formato:'sistema-comercial-backup',versao:1,exportado_em:new Date().toISOString(),
+      empresa:{...WS},
+      logo_pdv:localStorage.getItem(PDV_LOGO_KEY+(wsId()||'default'))||null,
+      dados:{},
+      observacao:'Backup exportado pelo navegador. Não contém senha, token ou sessão de acesso.'
+    };
+    if(_isOnline&&sb){
+      const rows=await Promise.all(BACKUP_TABLES.map(async table=>[table,await backupRowsOnline(table)]));
+      for(const [table,data] of rows)backup.dados[table]=data;
+      const vendaIds=(backup.dados.vendas||[]).map(x=>x.id).filter(Boolean),orcIds=(backup.dados.orcamentos||[]).map(x=>x.id).filter(Boolean);
+      backup.dados.venda_itens=await backupChildRowsOnline('venda_itens','venda_id',vendaIds);
+      backup.dados.orcamento_itens=await backupChildRowsOnline('orcamento_itens','orcamento_id',orcIds);
+    }else{
+      for(const table of [...STORES].filter(x=>x!=='sync_queue')){
+        const all=await idbGetAll(table);backup.dados[table]=all.filter(x=>!x.workspace_id||String(x.workspace_id)===String(wsId()));
+      }
+    }
+    const json=JSON.stringify(backup,null,2),blob=new Blob([json],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+    const nome=String(WS.nome||'empresa').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-').replace(/^-|-$/g,'').toLowerCase()||'empresa';
+    a.href=url;a.download=`backup-${nome}-${new Date().toISOString().slice(0,10)}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const total=Object.values(backup.dados).reduce((n,rows)=>n+(Array.isArray(rows)?rows.length:0),0);mostrarToast(`Backup baixado com sucesso: ${total} registros.`,'success');
+  }catch(e){console.error('[backup]',e);mostrarToast('Não foi possível gerar o backup: '+(e.message||'erro desconhecido'),'error');}
 }
 
 // ── SAAS ──────────────────────────────────────────────────────
