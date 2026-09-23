@@ -403,7 +403,7 @@ textarea{resize:vertical;min-height:52px}
       <div class="page" id="page-prod">
         <div id="a-prod"></div>
         <div class="sr"><input type="text" placeholder="Buscar produto..." id="s-prod" oninput="filtrarProd()"><div style="margin-left:auto" id="act-prod"></div></div>
-        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:80px">Código</th><th>Nome</th><th style="width:100px">Categoria</th><th style="width:90px">Preço</th><th style="width:80px">Estoque</th><th style="width:120px">Fornecedor</th><th style="width:95px">Ações</th></tr></thead><tbody id="tb-prod"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div></div>
+        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:80px">Código</th><th>Nome</th><th style="width:100px">Categoria</th><th>Aplicação / Compatibilidade</th><th style="width:105px">Localização</th><th style="width:90px">Preço</th><th style="width:80px">Estoque</th><th style="width:120px">Fornecedor</th><th style="width:95px">Ações</th></tr></thead><tbody id="tb-prod"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div></div>
       </div>
 
       <!-- CLIENTES -->
@@ -573,7 +573,9 @@ textarea{resize:vertical;min-height:52px}
     <div class="f"><label>Categoria</label><input id="p-cat" placeholder="ex: Eletrônicos"></div>
     <div class="f s3"><label>Nome do produto *</label><input id="p-nm" placeholder="Descrição completa do produto"></div>
     <div class="f"><label>Marca</label><input id="p-marca" placeholder="ex: Samsung, Nike..."></div>
-    <div class="f"><label>Código de barras</label><input id="p-barras" placeholder="EAN-13 ou outro"></div>
+    <div class="f"><label>Código de barras</label><input id="p-barras" placeholder="EAN-13 ou outro" inputmode="numeric">
+    <div class="f s2"><label>Aplicação / Compatibilidade</label><input id="p-aplicacao" placeholder="Ex: Honda CG 160 2016–2024"></div>
+    <div class="f"><label>Localização</label><input id="p-localizacao" placeholder="Ex: Prateleira A3, Box 2"></div></div>
     <div class="f"><label>Preço de venda (R$)</label><input id="p-pr" type="number" min="0" step="0.01" placeholder="0,00"></div>
     <div class="f"><label>Custo (R$)</label><input id="p-cu" type="number" min="0" step="0.01" placeholder="0,00"></div>
     <div class="f"><label>Estoque inicial</label><input id="p-est" type="number" min="0" value="0"></div>
@@ -1488,24 +1490,24 @@ async function rProd(f) {
       data = (await idbGetAll('produtos')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     }
     _produtos = data;
-    const l = f ? data.filter(p=>(p.nome+p.codigo+p.categoria).toLowerCase().includes(f.toLowerCase())) : data;
-    if (!l.length) { tb.innerHTML='<tr><td colspan="7" class="emp">Nenhum produto cadastrado.</td></tr>'; return; }
+    const l = f ? data.filter(p=>[p.nome,p.codigo,p.codigo_barras,p.categoria,p.marca,p.aplicacao,p.localizacao].filter(Boolean).join(' ').toLowerCase().includes(f.toLowerCase())) : data;
+    if (!l.length) { tb.innerHTML='<tr><td colspan="9" class="emp">Nenhum produto cadastrado.</td></tr>'; return; }
     tb.innerHTML = l.map(p => {
       const ec = p.estoque<=0?'bd':p.estoque<=(p.estoque_min||5)?'bw':'bs';
       const fn = p.fornecedores?.nome || '—';
       return `<tr>
         <td style="font-family:monospace;font-weight:600">${p.codigo||'—'}</td>
-        <td>${p.nome}${p.marca?`<small style="display:block;color:var(--txt2)">${p.marca}</small>`:''}</td>
-        <td>${p.categoria||'—'}</td><td>${R(p.preco)}</td>
-        <td><span class="badge ${ec}">${p.estoque} ${p.unidade||'un'}</span></td>
-        <td>${fn}</td>
+        <td>${escapeHtml(p.nome)}${p.marca?`<small style="display:block;color:var(--txt2)">${escapeHtml(p.marca)}</small>`:''}${p.codigo_barras?`<small style="display:block;color:var(--txt2)">Barras: ${escapeHtml(p.codigo_barras)}</small>`:''}</td>
+        <td>${escapeHtml(p.categoria||'—')}</td><td>${escapeHtml(p.aplicacao||'—')}</td><td>${escapeHtml(p.localizacao||'—')}</td><td>${R(p.preco)}</td>
+        <td><span class="badge ${ec}">${p.estoque} ${escapeHtml(p.unidade||'un')}</span></td>
+        <td>${escapeHtml(fn)}</td>
         <td><div class="tda">
           <button class="btn sm" onclick="openProd('${p.id}')"><i class="ti ti-edit"></i></button>
           <button class="btn sm bda" onclick="excluir('produtos','${p.id}','prod')"><i class="ti ti-trash"></i></button>
         </div></td></tr>`;
     }).join('');
   } catch(e) {
-    tb.innerHTML=`<tr><td colspan="7" class="emp">Erro ao carregar: ${e.message}</td></tr>`;
+    tb.innerHTML=`<tr><td colspan="9" class="emp">Erro ao carregar: ${e.message}</td></tr>`;
   }
 }
 function filtrarProd() { rProd(document.getElementById('s-prod').value); }
@@ -1515,7 +1517,7 @@ async function openProd(id=null) {
   document.getElementById('mp-t').textContent = id?'Editar produto':'Novo produto';
   document.getElementById('a-mprod').innerHTML = '';
   // Limpar campos
-  ['p-cat','p-nm','p-marca','p-barras','p-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
+  ['p-cat','p-nm','p-marca','p-barras','p-aplicacao','p-localizacao','p-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
   ['p-pr','p-cu'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
   document.getElementById('p-un').value='un';
   document.getElementById('p-est').value=0;
@@ -1538,6 +1540,8 @@ async function openProd(id=null) {
       document.getElementById('p-cat').value  = p.categoria||'';
       document.getElementById('p-marca').value= p.marca||'';
       document.getElementById('p-barras').value=p.codigo_barras||'';
+      document.getElementById('p-aplicacao').value=p.aplicacao||'';
+      document.getElementById('p-localizacao').value=p.localizacao||'';
       document.getElementById('p-un').value   = p.unidade||'un';
       document.getElementById('p-pr').value   = p.preco||'';
       document.getElementById('p-cu').value   = p.custo||'';
@@ -1566,6 +1570,8 @@ async function salvarProd() {
       categoria:     document.getElementById('p-cat').value.trim(),
       marca:         document.getElementById('p-marca').value.trim(),
       codigo_barras: document.getElementById('p-barras').value.trim(),
+      aplicacao:     document.getElementById('p-aplicacao').value.trim(),
+      localizacao:   document.getElementById('p-localizacao').value.trim(),
       unidade:       document.getElementById('p-un').value,
       preco:         parseFloat(document.getElementById('p-pr').value)||0,
       custo:         parseFloat(document.getElementById('p-cu').value)||0,
