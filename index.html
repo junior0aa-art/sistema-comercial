@@ -172,6 +172,10 @@ textarea{resize:vertical;min-height:52px}
 .fcv.rd{color:var(--red-txt)}
 .fcv.bl{color:var(--blue-txt)}
 
+/* ── Relatórios financeiros ───────────────────────────── */
+.report-toolbar{align-items:flex-end}.report-toolbar .f{min-width:135px}.report-heading{display:flex;justify-content:space-between;align-items:flex-start;margin:4px 0 14px}.report-heading h2{font-size:18px}.report-heading p{font-size:12px;color:var(--txt2);margin-top:3px}.report-heading strong{font-size:12px;color:var(--txt2)}.fin-chart{height:220px;display:flex;align-items:stretch;gap:8px;border-bottom:1px solid var(--bdr);padding:12px 4px 0}.fin-chart .bar-col{flex:1;min-width:18px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px}.fin-chart .bar-stack{height:170px;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:2px}.fin-chart .bar{width:42%;min-height:2px;border-radius:3px 3px 0 0}.fin-chart .bar.rec{background:var(--green)}.fin-chart .bar.des{background:var(--red)}.fin-chart small{font-size:9px;color:var(--txt2);white-space:nowrap}.fin-chart .bar-value{font-size:9px;color:var(--txt2);transform:rotate(-45deg);transform-origin:center}.report-bars{display:flex;flex-direction:column;gap:10px;padding:10px 2px}.report-bar-row{display:grid;grid-template-columns:105px 1fr 75px;align-items:center;gap:8px;font-size:11px}.report-bar-track{height:9px;background:var(--bg3);border-radius:5px;overflow:hidden}.report-bar-fill{height:100%;background:var(--blue);border-radius:5px}.cash-check-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}.cash-check-summary .cash-line{padding:10px 12px;border:1px solid var(--bdr);border-radius:var(--rad);background:var(--bg2)}.cash-check-summary .cash-line span{display:block;font-size:11px;color:var(--txt2);margin-bottom:4px}.cash-check-summary .cash-line strong{font-size:16px}.cash-check-summary .cash-diff{grid-column:span 2}.cash-check-summary .ok{background:var(--green-bg);border-color:#86efac;color:var(--green-txt)}.cash-check-summary .bad{background:var(--red-bg);border-color:#fca5a5;color:var(--red-txt)}
+@media print{body{background:#fff}#app{height:auto;overflow:visible}.sidebar,.topbar,.report-toolbar,#a-fin,.btn,.tda,.mw{display:none!important}.main,.content{overflow:visible;padding:0}.page{display:none!important}.page#page-fin{display:block!important}.print-area{display:block!important}.card,.fc{box-shadow:none;break-inside:avoid}.report-grid{grid-template-columns:1fr 1fr}.report-heading{margin-bottom:10px}table{font-size:10px}th,td{padding:5px 6px}}
+
 /* ── Progress ─────────────────────────────────────────── */
 .pb{height:5px;border-radius:3px;background:var(--bg3);overflow:hidden;margin-top:4px}
 .pf{height:100%;border-radius:3px;background:var(--blue);transition:width .3s}
@@ -456,15 +460,28 @@ textarea{resize:vertical;min-height:52px}
         <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:60px">#</th><th style="width:85px">Data</th><th>Cliente</th><th style="width:90px">Validade</th><th style="width:100px">Total</th><th style="width:80px">Status</th><th style="width:120px">Ações</th></tr></thead><tbody id="tb-orc"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div></div>
       </div>
 
-      <!-- FINANCEIRO -->
+      <!-- RELATÓRIOS FINANCEIROS -->
       <div class="page" id="page-fin">
         <div id="a-fin"></div>
-        <div class="fsum">
-          <div class="fc"><div class="fcl"><i class="ti ti-arrow-down-circle" style="font-size:13px"></i>Receitas</div><div class="fcv gr" id="f-rec">—</div></div>
-          <div class="fc"><div class="fcl"><i class="ti ti-arrow-up-circle" style="font-size:13px"></i>Despesas</div><div class="fcv rd" id="f-des">—</div></div>
-          <div class="fc"><div class="fcl"><i class="ti ti-scale" style="font-size:13px"></i>Saldo</div><div class="fcv bl" id="f-sal">—</div></div>
+        <div class="sr report-toolbar">
+          <div class="f"><label>De</label><input id="fin-de" type="date" onchange="rFin()"></div>
+          <div class="f"><label>Até</label><input id="fin-ate" type="date" onchange="rFin()"></div>
+          <button class="btn" onclick="definirPeriodoFin('hoje')"><i class="ti ti-calendar-event"></i>Hoje</button>
+          <button class="btn" onclick="definirPeriodoFin('mes')"><i class="ti ti-calendar-month"></i>Este mês</button>
+          <button class="btn bp" onclick="imprimirRelatorioFin()"><i class="ti ti-printer"></i>Imprimir / PDF</button>
+          <button class="btn bsu" onclick="abrirConferenciaCaixa()"><i class="ti ti-cash-register"></i>Conferência do caixa</button>
+          <div style="margin-left:auto"><button class="btn bp sm" onclick="openLan()"><i class="ti ti-plus"></i>Novo lançamento</button></div>
         </div>
-        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:85px">Data</th><th>Descrição</th><th style="width:100px">Categoria</th><th style="width:75px">Tipo</th><th style="width:100px">Valor</th><th style="width:85px">Status</th><th style="width:90px">Ações</th></tr></thead><tbody id="tb-lan"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div></div>
+        <div id="relatorio-fin-conteudo" class="print-area">
+          <div class="report-heading"><div><h2>Relatório financeiro</h2><p id="fin-periodo-label">Período selecionado</p></div><strong id="fin-empresa-label"></strong></div>
+          <div class="fsum">
+            <div class="fc"><div class="fcl"><i class="ti ti-arrow-down-circle" style="font-size:13px"></i>Receitas</div><div class="fcv gr" id="f-rec">—</div></div>
+            <div class="fc"><div class="fcl"><i class="ti ti-arrow-up-circle" style="font-size:13px"></i>Despesas</div><div class="fcv rd" id="f-des">—</div></div>
+            <div class="fc"><div class="fcl"><i class="ti ti-scale" style="font-size:13px"></i>Saldo</div><div class="fcv bl" id="f-sal">—</div></div>
+          </div>
+          <div class="g2 report-grid"><div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-chart-bar"></i>Movimentação por dia</div></div><div id="fin-grafico" class="fin-chart"></div></div><div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-chart-donut"></i>Receitas por método</div></div><div id="fin-metodos" class="report-bars"></div></div></div>
+          <div class="card" style="padding:0"><div class="card-hd" style="padding:16px 16px 0"><div class="ct"><i class="ti ti-list-details"></i>Lançamentos do período</div><span id="fin-qtd" class="badge bg"></span></div><div class="tw"><table><thead><tr><th style="width:85px">Data</th><th>Descrição</th><th style="width:100px">Categoria</th><th style="width:75px">Tipo</th><th style="width:100px">Método</th><th style="width:100px">Valor</th><th style="width:85px">Status</th><th style="width:90px">Ações</th></tr></thead><tbody id="tb-lan"><tr><td colspan="8" class="emp">Carregando...</td></tr></tbody></table></div></div>
+        </div>
       </div>
 
       <!-- CONTAS A RECEBER -->
@@ -678,6 +695,9 @@ textarea{resize:vertical;min-height:52px}
   <div class="mh"><h2><i class="ti ti-receipt"></i> Comprovante da venda</h2><button class="xb" onclick="fecharComprovantePdv()">&times;</button></div>
   <div class="mb"><div class="alrt as"><i class="ti ti-circle-check"></i>Venda concluída. Este comprovante não possui validade fiscal.</div><div id="pdv-receipt-print"><div id="pdv-receipt-preview" class="receipt-preview"></div></div><div class="receipt-actions"><button class="btn" onclick="fecharComprovantePdv()">Fechar</button><button class="btn bp" onclick="imprimirComprovantePdv()"><i class="ti ti-printer"></i>Imprimir comprovante</button></div></div>
 </div></div>
+
+<!-- Conferência do caixa -->
+<div class="mw" id="mw-caixa"><div class="mo"><div class="mh"><h2><i class="ti ti-cash-register"></i> Conferência do caixa</h2><button class="xb" onclick="fecharM('caixa')">&times;</button></div><div class="mb"><div id="a-caixa"></div><div class="fg"><div class="f"><label>Data do caixa</label><input id="caixa-data" type="date" onchange="calcularConferenciaCaixa()"></div><div class="f"><label>Saldo inicial em dinheiro (R$)</label><input id="caixa-inicial" type="text" inputmode="decimal" placeholder="0,00" oninput="calcularConferenciaCaixa()"></div><div class="f"><label>Dinheiro contado no fechamento (R$)</label><input id="caixa-contado" type="text" inputmode="decimal" placeholder="0,00" oninput="calcularConferenciaCaixa()"></div></div><div id="caixa-resumo" class="cash-check-summary"></div><div class="card" style="margin-top:12px;background:var(--bg2)"><div class="ct"><i class="ti ti-info-circle"></i>Como conferir</div><p style="font-size:12px;color:var(--txt2);margin-top:6px;line-height:1.6">O sistema soma as entradas em dinheiro do dia ao saldo inicial e compara com o dinheiro contado. PIX, cartões e outros métodos ficam demonstrados separadamente.</p></div></div><div class="mf"><button class="btn" onclick="fecharM('caixa')">Fechar</button><button class="btn bp" onclick="imprimirConferenciaCaixa()"><i class="ti ti-printer"></i>Imprimir / PDF</button></div></div></div>
 
 <!-- Lançamento -->
 <div class="mw" id="mw-lan"><div class="mo">
@@ -2045,30 +2065,37 @@ async function verDoc(id,tipo){
   }catch(e){console.error(e);}
 }
 
-// ── FINANCEIRO ────────────────────────────────────────────────
+// ── RELATÓRIOS FINANCEIROS ───────────────────────────────────
+let _finTodosData=[];
+function finDataHoje(){return hj();}
+function finPrimeiroDia(){const d=new Date();return new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);}
+function finFormatDate(v){if(!v)return '—';const [y,m,d]=String(v).slice(0,10).split('-');return d&&m&&y?`${d}/${m}/${y}`:v;}
+function finPeriodo(){const de=document.getElementById('fin-de')?.value||finPrimeiroDia(),ate=document.getElementById('fin-ate')?.value||finDataHoje();return{de,ate};}
+function filtrarFinData(){const {de,ate}=finPeriodo();return _finTodosData.filter(l=>String(l.data||'').slice(0,10)>=de&&String(l.data||'').slice(0,10)<=ate);}
+function definirPeriodoFin(tipo){const de=document.getElementById('fin-de'),ate=document.getElementById('fin-ate');if(tipo==='hoje'){de.value=hj();ate.value=hj();}else{de.value=finPrimeiroDia();ate.value=hj();}rFin();}
+async function carregarLancamentosFin(){
+  if(_isOnline){const res=await sb.from('lancamentos').select('*').eq('workspace_id',wsId()).order('data',{ascending:false});if(res.error)throw res.error;_finTodosData=res.data||[];await idbClear('lancamentos');for(const r of _finTodosData)await idbPut('lancamentos',r);}
+  else _finTodosData=(await idbGetAll('lancamentos')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+}
+function renderGraficoFin(data){
+  const box=document.getElementById('fin-grafico');if(!box)return;const days={};data.forEach(l=>{const day=String(l.data||'').slice(0,10);if(!day)return;(days[day]??={rec:0,des:0});if(l.status==='confirmado')days[day][l.tipo==='receita'?'rec':'des']+=Number(l.valor||0);});const keys=Object.keys(days).sort();if(!keys.length){box.innerHTML='<div class="emp" style="width:100%">Sem movimentação no período.</div>';return;}const max=Math.max(1,...keys.flatMap(k=>[days[k].rec,days[k].des]));box.innerHTML=keys.map(k=>{const d=days[k],label=k.slice(8,10)+'/'+k.slice(5,7),rh=Math.max(2,Math.round(d.rec/max*160)),dh=Math.max(2,Math.round(d.des/max*160));return `<div class="bar-col"><div class="bar-value">${R(Math.max(d.rec,d.des))}</div><div class="bar-stack"><div class="bar rec" style="height:${d.rec?rh:0}px" title="Receitas ${R(d.rec)}"></div><div class="bar des" style="height:${d.des?dh:0}px" title="Despesas ${R(d.des)}"></div></div><small>${label}</small></div>`;}).join('');
+}
+function renderMetodosFin(data){const box=document.getElementById('fin-metodos');if(!box)return;const vals={};data.filter(l=>l.tipo==='receita'&&l.status==='confirmado').forEach(l=>{const k=l.metodo||'Não informado';vals[k]=(vals[k]||0)+Number(l.valor||0);});const arr=Object.entries(vals).sort((a,b)=>b[1]-a[1]),max=arr[0]?.[1]||1;box.innerHTML=arr.length?arr.map(([k,v])=>`<div class="report-bar-row"><span>${escapeHtml(k)}</span><div class="report-bar-track"><div class="report-bar-fill" style="width:${Math.max(3,Math.round(v/max*100))}%"></div></div><strong>${R(v)}</strong></div>`).join(''):'<div class="emp">Sem receitas no período.</div>';}
+function renderTabelaFin(data){const tb=document.getElementById('tb-lan');if(!tb)return;document.getElementById('fin-qtd').textContent=`${data.length} registro${data.length===1?'':'s'}`;if(!data.length){tb.innerHTML='<tr><td colspan="8" class="emp">Nenhum lançamento no período.</td></tr>';return;}tb.innerHTML=data.map(l=>`<tr><td>${finFormatDate(l.data)}</td><td>${escapeHtml(l.descricao)}</td><td>${escapeHtml(l.categoria||'—')}</td><td><span class="badge ${l.tipo==='receita'?'bs':'bd'}">${escapeHtml(l.tipo)}</span></td><td>${escapeHtml(l.metodo||'—')}</td><td style="font-weight:600;color:var(--${l.tipo==='receita'?'green':'red'}-txt)">${R(l.valor)}</td><td><span class="badge ${l.status==='confirmado'?'bs':'bw'}">${escapeHtml(l.status||'—')}</span></td><td><div class="tda"><button class="btn sm" onclick="openLan('${l.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluir('lancamentos','${l.id}','fin')"><i class="ti ti-trash"></i></button></div></td></tr>`).join('');}
 async function rFin(){
-  const tb=document.getElementById('tb-lan');
   try{
-    let data;
-    if(_isOnline){const res=await sb.from('lancamentos').select('*').eq('workspace_id',wsId()).order('data',{ascending:false});if(res.error)throw res.error;data=res.data||[];await idbClear('lancamentos');for(const r of data)await idbPut('lancamentos',r);}
-    else{data=(await idbGetAll('lancamentos')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(b.data||'').localeCompare(a.data||''));}
-    const rec=data.filter(l=>l.tipo==='receita'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
-    const des=data.filter(l=>l.tipo==='despesa'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0);
-    const sal=rec-des;
-    document.getElementById('f-rec').textContent=R(rec);
-    document.getElementById('f-des').textContent=R(des);
-    const es=document.getElementById('f-sal');es.textContent=R(sal);es.className='fcv '+(sal>=0?'bl':'rd');
-    if(!data.length){tb.innerHTML='<tr><td colspan="7" class="emp">Nenhum lançamento.</td></tr>';return;}
-    tb.innerHTML=data.map(l=>`<tr>
-      <td>${l.data}</td><td>${l.descricao}</td><td>${l.categoria||'—'}</td>
-      <td><span class="badge ${l.tipo==='receita'?'bs':'bd'}">${l.tipo}</span></td>
-      <td style="font-weight:600;color:var(--${l.tipo==='receita'?'green':'red'}-txt)">${R(l.valor)}</td>
-      <td><span class="badge ${l.status==='confirmado'?'bs':'bw'}">${l.status}</span></td>
-      <td><div class="tda">
-        <button class="btn sm" onclick="openLan('${l.id}')"><i class="ti ti-edit"></i></button>
-        <button class="btn sm bda" onclick="excluir('lancamentos','${l.id}','fin')"><i class="ti ti-trash"></i></button>
-      </div></td></tr>`).join('');
-  }catch(e){tb.innerHTML=`<tr><td colspan="7" class="emp">Erro: ${e.message}</td></tr>`;}
+    const de=document.getElementById('fin-de'),ate=document.getElementById('fin-ate');if(de&&!de.value)de.value=finPrimeiroDia();if(ate&&!ate.value)ate.value=finDataHoje();
+    await carregarLancamentosFin();const data=filtrarFinData(),rec=data.filter(l=>l.tipo==='receita'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0),des=data.filter(l=>l.tipo==='despesa'&&l.status==='confirmado').reduce((s,l)=>s+Number(l.valor||0),0),sal=rec-des;
+    document.getElementById('f-rec').textContent=R(rec);document.getElementById('f-des').textContent=R(des);const es=document.getElementById('f-sal');es.textContent=R(sal);es.className='fcv '+(sal>=0?'bl':'rd');const per=finPeriodo();document.getElementById('fin-periodo-label').textContent=`De ${finFormatDate(per.de)} até ${finFormatDate(per.ate)}`;document.getElementById('fin-empresa-label').textContent=WS?.nome||'';renderGraficoFin(data);renderMetodosFin(data);renderTabelaFin(data);
+  }catch(e){const tb=document.getElementById('tb-lan');if(tb)tb.innerHTML=`<tr><td colspan="8" class="emp">Erro ao carregar relatório: ${escapeHtml(e.message)}</td></tr>`;}
+}
+function imprimirRelatorioFin(){nav('fin');setTimeout(()=>window.print(),80);}
+function abrirConferenciaCaixa(){document.getElementById('caixa-data').value=hj();document.getElementById('caixa-inicial').value='';document.getElementById('caixa-contado').value='';calcularConferenciaCaixa();abrirM('caixa');}
+function calcularConferenciaCaixa(){const data=(_finTodosData||[]).filter(l=>String(l.data||'').slice(0,10)===(document.getElementById('caixa-data')?.value||hj())&&l.status==='confirmado'),initial=numeroPdv(document.getElementById('caixa-inicial')?.value),counted=numeroPdv(document.getElementById('caixa-contado')?.value),cashIn=data.filter(l=>l.tipo==='receita'&&(l.metodo||'').toLowerCase().includes('dinheiro')).reduce((s,l)=>s+Number(l.valor||0),0),cashOut=data.filter(l=>l.tipo==='despesa'&&(l.metodo||'').toLowerCase().includes('dinheiro')).reduce((s,l)=>s+Number(l.valor||0),0),pix=data.filter(l=>l.tipo==='receita'&&(l.metodo||'').toLowerCase()==='pix').reduce((s,l)=>s+Number(l.valor||0),0),cards=data.filter(l=>l.tipo==='receita'&&(l.metodo||'').toLowerCase().includes('cartão')).reduce((s,l)=>s+Number(l.valor||0),0),expected=initial+cashIn-cashOut,diff=counted-expected,box=document.getElementById('caixa-resumo');if(!box)return;box.innerHTML=`<div class="cash-line"><span>Entradas em dinheiro</span><strong>${R(cashIn)}</strong></div><div class="cash-line"><span>Saídas em dinheiro</span><strong>${R(cashOut)}</strong></div><div class="cash-line"><span>PIX no dia</span><strong>${R(pix)}</strong></div><div class="cash-line"><span>Cartões no dia</span><strong>${R(cards)}</strong></div><div class="cash-line"><span>Saldo esperado em dinheiro</span><strong>${R(expected)}</strong></div><div class="cash-line"><span>Dinheiro contado</span><strong>${R(counted)}</strong></div><div class="cash-line cash-diff ${Math.abs(diff)<.01?'ok':'bad'}"><span>${Math.abs(diff)<.01?'Conferência fechada':'Diferença no caixa'}</span><strong>${R(diff)}</strong></div>`;}
+function imprimirConferenciaCaixa(){
+  const data=document.getElementById('caixa-data').value||hj(),rows=(_finTodosData||[]).filter(l=>String(l.data||'').slice(0,10)===data&&l.status==='confirmado'),initial=numeroPdv(document.getElementById('caixa-inicial')?.value),counted=numeroPdv(document.getElementById('caixa-contado')?.value),cashIn=rows.filter(l=>l.tipo==='receita'&&(l.metodo||'').toLowerCase().includes('dinheiro')).reduce((s,l)=>s+Number(l.valor||0),0),cashOut=rows.filter(l=>l.tipo==='despesa'&&(l.metodo||'').toLowerCase().includes('dinheiro')).reduce((s,l)=>s+Number(l.valor||0),0),pix=rows.filter(l=>l.tipo==='receita'&&(l.metodo||'').toLowerCase()==='pix').reduce((s,l)=>s+Number(l.valor||0),0),cards=rows.filter(l=>l.tipo==='receita'&&(l.metodo||'').toLowerCase().includes('cartão')).reduce((s,l)=>s+Number(l.valor||0),0),expected=initial+cashIn-cashOut,diff=counted-expected,w=window.open('','_blank','width=820,height=900');
+  if(!w){mostrarToast('Permita pop-ups para imprimir o relatório.','error');return;}
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conferência de caixa - ${data}</title><style>body{font-family:Arial,sans-serif;color:#222;margin:32px}h1{font-size:22px;margin-bottom:4px}p{color:#666;font-size:13px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:24px 0}.item{border:1px solid #ddd;border-radius:8px;padding:13px}.item span{display:block;color:#666;font-size:12px;margin-bottom:5px}.item strong{font-size:18px}.diff{grid-column:span 2;background:${Math.abs(diff)<.01?'#f0fdf4':'#fef2f2'};color:${Math.abs(diff)<.01?'#166534':'#991b1b'}}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;border-bottom:1px solid #ddd;padding:8px}th{background:#f5f5f5}@media print{body{margin:12mm}}</style></head><body><h1>Conferência de caixa</h1><p>${escapeHtml(WS?.nome||'Empresa')} · Data: ${finFormatDate(data)}</p><div class="grid"><div class="item"><span>Saldo inicial em dinheiro</span><strong>${R(initial)}</strong></div><div class="item"><span>Entradas em dinheiro</span><strong>${R(cashIn)}</strong></div><div class="item"><span>Saídas em dinheiro</span><strong>${R(cashOut)}</strong></div><div class="item"><span>Saldo esperado em dinheiro</span><strong>${R(expected)}</strong></div><div class="item"><span>Dinheiro contado</span><strong>${R(counted)}</strong></div><div class="item"><span>PIX no dia</span><strong>${R(pix)}</strong></div><div class="item"><span>Cartões no dia</span><strong>${R(cards)}</strong></div><div class="item diff"><span>${Math.abs(diff)<.01?'Conferência fechada':'Diferença no caixa'}</span><strong>${R(diff)}</strong></div></div><h2>Movimentações confirmadas</h2><table><thead><tr><th>Descrição</th><th>Tipo</th><th>Método</th><th>Valor</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${escapeHtml(l.descricao)}</td><td>${escapeHtml(l.tipo)}</td><td>${escapeHtml(l.metodo||'—')}</td><td>${R(l.valor)}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma movimentação confirmada.</td></tr>'}</tbody></table></body></html>`);w.document.close();setTimeout(()=>w.print(),300);
 }
 
 async function openLan(id=null){
