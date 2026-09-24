@@ -15,6 +15,9 @@ create table if not exists public.rest_mesas (
   created_at timestamptz not null default now()
 );
 
+alter table public.rest_mesas
+  add column if not exists observacao text;
+
 create table if not exists public.rest_pedidos (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
