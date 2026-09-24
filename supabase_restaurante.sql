@@ -6,6 +6,23 @@ alter table public.workspaces
 
 update public.workspaces set segmento='comercial' where segmento is null;
 
+
+create table if not exists public.rest_produtos (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  nome text not null,
+  categoria text,
+  descricao text,
+  preco numeric(12,2) not null default 0,
+  status text not null default 'ativo' check (status in ('ativo','inativo')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists rest_produtos_workspace_idx on public.rest_produtos(workspace_id,status);
+alter table public.rest_produtos enable row level security;
+drop policy if exists rest_produtos_workspace_access on public.rest_produtos;
+create policy rest_produtos_workspace_access on public.rest_produtos for all to authenticated using (workspace_id in (select u.workspace_id from public.usuarios u where u.auth_id=auth.uid())) with check (workspace_id in (select u.workspace_id from public.usuarios u where u.auth_id=auth.uid()));
+
 create table if not exists public.rest_mesas (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
@@ -41,6 +58,9 @@ create table if not exists public.rest_pedido_itens (
   subtotal numeric(12,2) not null default 0,
   created_at timestamptz not null default now()
 );
+
+-- Os itens do restaurante usam IDs de rest_produtos, não do catálogo comercial.
+alter table public.rest_pedido_itens drop constraint if exists rest_pedido_itens_produto_id_fkey;
 
 create index if not exists rest_mesas_workspace_idx on public.rest_mesas(workspace_id);
 create index if not exists rest_pedidos_workspace_status_idx on public.rest_pedidos(workspace_id,status);
