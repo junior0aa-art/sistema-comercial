@@ -204,6 +204,7 @@ textarea{resize:vertical;min-height:52px}
 .plan-pr span{font-size:12px;font-weight:400;color:var(--txt2)}
 .plan-ft{font-size:11px;color:var(--txt2);line-height:2}
 
+.produto-foto-box{display:flex;align-items:center;gap:12px;padding:10px;border:1px dashed var(--bdr2);border-radius:var(--rad);background:var(--bg2);margin-bottom:11px}.produto-foto-preview{width:82px;height:82px;border-radius:var(--rad);border:1px solid var(--bdr);background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--txt3);flex-shrink:0}.produto-foto-preview img{width:100%;height:100%;object-fit:cover}.produto-foto-info{font-size:11px;color:var(--txt2);line-height:1.45}.produto-foto-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.produto-thumb{width:38px;height:38px;border-radius:6px;object-fit:cover;border:1px solid var(--bdr);vertical-align:middle;margin-right:7px}.pdv-product-photo{width:100%;height:74px;object-fit:cover;border-radius:7px;margin-bottom:7px;background:var(--bg2)}
 /* ── Misc ─────────────────────────────────────────────── */
 .sr{display:flex;gap:8px;margin-bottom:13px;align-items:center;flex-wrap:wrap}
 .sr input{max-width:250px}
@@ -425,7 +426,7 @@ textarea{resize:vertical;min-height:52px}
       <div class="page" id="page-prod">
         <div id="a-prod"></div>
         <div class="sr"><input type="text" placeholder="Buscar produto..." id="s-prod" oninput="filtrarProd()"><div style="margin-left:auto" id="act-prod"></div></div>
-        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:80px">Código</th><th>Nome</th><th style="width:100px">Categoria</th><th>Aplicação / Compatibilidade</th><th style="width:105px">Localização</th><th style="width:90px">Preço</th><th style="width:80px">Estoque</th><th style="width:120px">Fornecedor</th><th style="width:95px">Ações</th></tr></thead><tbody id="tb-prod"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div></div>
+        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:80px">Código</th><th>Foto / nome</th><th style="width:100px">Categoria</th><th>Aplicação / Compatibilidade</th><th style="width:105px">Localização</th><th style="width:90px">Preço</th><th style="width:80px">Estoque</th><th style="width:120px">Fornecedor</th><th style="width:95px">Ações</th></tr></thead><tbody id="tb-prod"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div></div>
       </div>
 
       <!-- CLIENTES -->
@@ -635,7 +636,7 @@ textarea{resize:vertical;min-height:52px}
 <!-- Produto -->
 <div class="mw" id="mw-prod"><div class="mo lg">
   <div class="mh"><h2 id="mp-t">Novo produto</h2><button class="xb" onclick="fecharM('prod')">&times;</button></div>
-  <div class="mb"><div id="a-mprod"></div><div class="fg c3">
+  <div class="mb"><div id="a-mprod"></div><div class="produto-foto-box"><div class="produto-foto-preview" id="p-foto-preview"><i class="ti ti-photo"></i></div><div class="produto-foto-info"><b>Foto do produto</b><br>Use uma imagem quadrada ou horizontal. Ela aparecerá no cadastro e no PDV.<div class="produto-foto-actions"><input type="file" id="p-foto-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="prepararFotoProduto(event)"><button type="button" class="btn sm" onclick="document.getElementById('p-foto-file').click()"><i class="ti ti-upload"></i>Escolher foto</button><button type="button" class="btn sm bda" onclick="removerFotoProduto()"><i class="ti ti-trash"></i>Remover</button></div></div></div><div class="fg c3">
     <input type="hidden" id="p-cod">
     <div class="f"><label>Unidade</label><select id="p-un"><option>un</option><option>kg</option><option>cx</option><option>pç</option><option>m</option><option>L</option></select></div>
     <div class="f"><label>Categoria</label><input id="p-cat" placeholder="ex: Eletrônicos"></div>
@@ -1638,6 +1639,10 @@ async function rDash() {
 }
 
 // ── PRODUTOS ─────────────────────────────────────────────────
+let _produtoFotoData='';
+function atualizarPreviewFotoProduto(src){const box=document.getElementById('p-foto-preview');if(!box)return;box.innerHTML=src?`<img src="${escapeHtml(src)}" alt="Foto do produto">`:'<i class="ti ti-photo"></i>';}
+function removerFotoProduto(){_produtoFotoData='';atualizarPreviewFotoProduto('');const e=document.getElementById('p-foto-file');if(e)e.value='';}
+function prepararFotoProduto(ev){const file=ev.target.files?.[0];if(!file)return;if(!file.type.startsWith('image/')){mostrarToast('Escolha um arquivo de imagem.','error');return;}const reader=new FileReader();reader.onload=()=>{const img=new Image();img.onload=()=>{const max=900,scale=Math.min(1,max/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*scale));c.height=Math.max(1,Math.round(img.height*scale));c.getContext('2d').drawImage(img,0,0,c.width,c.height);_produtoFotoData=c.toDataURL('image/jpeg',.82);atualizarPreviewFotoProduto(_produtoFotoData);};img.src=reader.result;};reader.readAsDataURL(file);}
 async function rProd(f) {
   document.getElementById('act-prod').innerHTML=`<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`;
   const tb = document.getElementById('tb-prod');
@@ -1659,7 +1664,7 @@ async function rProd(f) {
       const fn = p.fornecedores?.nome || '—';
       return `<tr>
         <td style="font-family:monospace;font-weight:600">${p.codigo||'—'}</td>
-        <td>${escapeHtml(p.nome)}${p.marca?`<small style="display:block;color:var(--txt2)">${escapeHtml(p.marca)}</small>`:''}${p.codigo_barras?`<small style="display:block;color:var(--txt2)">Barras: ${escapeHtml(p.codigo_barras)}</small>`:''}</td>
+        <td>${p.foto_url?`<img class="produto-thumb" src="${escapeHtml(p.foto_url)}" alt="">`:''}<span>${escapeHtml(p.nome)}</span>${p.marca?`<small style="display:block;color:var(--txt2);margin-left:${p.foto_url?45:0}px">${escapeHtml(p.marca)}</small>`:''}${p.codigo_barras?`<small style="display:block;color:var(--txt2);margin-left:${p.foto_url?45:0}px">Barras: ${escapeHtml(p.codigo_barras)}</small>`:''}</td>
         <td>${escapeHtml(p.categoria||'—')}</td><td>${escapeHtml(p.aplicacao||'—')}</td><td>${escapeHtml(p.localizacao||'—')}</td><td>${R(p.preco)}</td>
         <td><span class="badge ${ec}">${p.estoque} ${escapeHtml(p.unidade||'un')}</span></td>
         <td>${escapeHtml(fn)}</td>
@@ -1678,6 +1683,7 @@ async function openProd(id=null) {
   editId.prod = id;
   document.getElementById('mp-t').textContent = id?'Editar produto':'Novo produto';
   document.getElementById('a-mprod').innerHTML = '';
+  _produtoFotoData=''; removerFotoProduto();
   // Limpar campos
   ['p-cat','p-nm','p-marca','p-barras','p-aplicacao','p-localizacao','p-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
   ['p-pr','p-cu'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
@@ -1712,6 +1718,7 @@ async function openProd(id=null) {
       document.getElementById('p-emax').value = p.estoque_max||100;
       document.getElementById('p-for').value  = p.fornecedor_id||'';
       document.getElementById('p-ob').value   = p.observacoes||'';
+      _produtoFotoData=p.foto_url||''; atualizarPreviewFotoProduto(_produtoFotoData);
     }
   }
   abrirM('prod');
@@ -1742,6 +1749,7 @@ async function salvarProd() {
       estoque_max:   parseInt(document.getElementById('p-emax').value)||100,
       fornecedor_id: document.getElementById('p-for').value||null,
       observacoes:   document.getElementById('p-ob').value.trim(),
+      foto_url:      _produtoFotoData||null,
     };
     if (editId.prod) await dbUpdate('produtos',editId.prod,payload);
     else await dbInsert('produtos',{...payload,workspace_id:wsId()});
@@ -2639,7 +2647,7 @@ function renderPdvProdutos() {
   const lista = _pdvProdutos.filter(p => !q || `${p.nome||''} ${p.codigo||''} ${p.codigo_barras||''}`.toLowerCase().includes(q));
   if (!lista.length) { grid.innerHTML='<div class="pdv-empty">Nenhum produto encontrado.</div>'; return; }
   grid.innerHTML = lista.map(p => `<button class="pdv-product" type="button" onclick="pdvAdicionar('${escapeHtml(p.id)}')" aria-label="Adicionar ${escapeHtml(p.nome)}">
-    <span class="pdv-product-name">${escapeHtml(p.nome||'Produto')}</span><span class="pdv-product-code">${escapeHtml(p.codigo||p.codigo_barras||'')}</span>
+    ${p.foto_url?`<img class="pdv-product-photo" src="${escapeHtml(p.foto_url)}" alt="">`:''}<span class="pdv-product-name">${escapeHtml(p.nome||'Produto')}</span><span class="pdv-product-code">${escapeHtml(p.codigo||p.codigo_barras||'')}</span>
     <span class="pdv-product-foot"><span class="pdv-product-price">${R(p.preco)}</span><span class="pdv-product-stock">Estoque: ${Number(p.estoque||0)}</span></span></button>`).join('');
 }
 function filtrarPdv(){ renderPdvProdutos(); }
