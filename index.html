@@ -2785,7 +2785,18 @@ function prepararComprovantePdv({venda,itens,data,total,descontoTipo='valor',des
 }
 function abrirComprovantePdv(){abrirM('pdv-receipt');}
 function fecharComprovantePdv(){fecharM('pdv-receipt');}
-function imprimirComprovantePdv(){window.print();}
+function imprimirComprovantePdv(){
+  const preview=document.getElementById('pdv-receipt-preview');
+  if(!preview||!preview.innerHTML.trim()){mostrarToast('Comprovante vazio. Finalize a venda novamente.','error');return;}
+  const w=window.open('','_blank','width=420,height=760');
+  if(!w){mostrarToast('Permita pop-ups para imprimir o comprovante.','error');return;}
+  w.document.open();
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante não fiscal</title><style>@page{size:80mm auto;margin:3mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#111}body{width:74mm;font-family:"Courier New",monospace;font-size:10px;line-height:1.45}.receipt-preview{width:100%;padding:0;background:#fff}.receipt-head{text-align:center;border-bottom:1px dashed #777;padding-bottom:8px;margin-bottom:8px}.receipt-logo{display:block;max-width:100px;max-height:52px;object-fit:contain;margin:0 auto 6px}.receipt-company{font-size:15px;font-weight:700;word-break:break-word}.receipt-sub{font-size:10px;color:#555}.receipt-row{display:flex;justify-content:space-between;gap:8px}.receipt-items{border-top:1px dashed #777;border-bottom:1px dashed #777;margin:8px 0;padding:6px 0}.receipt-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin:4px 0}.receipt-item-name{word-break:break-word}.receipt-item-meta{color:#444;text-align:right;white-space:nowrap}.receipt-total{font-size:14px;font-weight:700;margin-top:6px}.receipt-foot{text-align:center;border-top:1px dashed #777;margin-top:9px;padding-top:8px;font-size:9px;color:#444}@media print{body{width:74mm}}</style></head><body><div class="receipt-preview">${preview.innerHTML}</div></body></html>`);
+  w.document.close();
+  w.focus();
+  w.onafterprint=()=>w.close();
+  setTimeout(()=>w.print(),250);
+}
 
 function carregarLogoPdv(){
   const logo=localStorage.getItem(PDV_LOGO_KEY+(wsId()||'default')), img=document.getElementById('pdv-logo-img'), icon=document.getElementById('pdv-logo-icon');
