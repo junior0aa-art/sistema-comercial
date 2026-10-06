@@ -488,7 +488,7 @@ textarea{resize:vertical;min-height:52px}
             <div class="card-hd"><div class="ct"><i class="ti ti-shopping-cart"></i>Carrinho</div><button class="btn sm" onclick="pdvLimpar()">Limpar</button></div>
             <div class="f" style="margin-bottom:10px"><label>Cliente (opcional)</label><select id="pdv-cli"><option value="">Consumidor final</option></select></div>
             <div id="pdv-cart-body" class="pdv-cart-body"><div class="pdv-empty">Nenhum produto adicionado.</div></div>
-            <div class="pdv-totals"><div class="pdv-total-row"><span>Subtotal</span><b id="pdv-subtotal">R$ 0,00</b></div><div class="f" style="margin:8px 0"><label>Desconto (R$)</label><input id="pdv-desc" type="number" min="0" step="0.01" value="0" oninput="renderPdvCarrinho()"></div><div class="pdv-total-row grand"><span>Total</span><strong id="pdv-total">R$ 0,00</strong></div></div>
+            <div class="pdv-totals"><div class="pdv-total-row"><span>Subtotal</span><b id="pdv-subtotal">R$ 0,00</b></div><div class="f" style="margin:8px 0"><label>Desconto</label><div style="display:grid;grid-template-columns:minmax(105px,.8fr) minmax(0,1.2fr);gap:7px"><select id="pdv-desc-tipo" onchange="renderPdvCarrinho()"><option value="valor">Valor (R$)</option><option value="percentual">Porcentagem (%)</option></select><input id="pdv-desc" type="number" min="0" step="0.01" value="0" oninput="renderPdvCarrinho()" placeholder="0,00"></div></div><div class="pdv-total-row grand"><span>Total</span><strong id="pdv-total">R$ 0,00</strong></div></div>
             <div class="pdv-cart-actions"><button class="btn" onclick="pdvLimpar()"><i class="ti ti-trash"></i>Cancelar</button><button class="btn bp" onclick="abrirPdvFechamento()"><i class="ti ti-cash"></i>Fechar venda</button></div>
           </div>
         </div>
@@ -2708,10 +2708,11 @@ function pdvAlterarQtd(i, delta) {
   if (iV[i].quantidade <= 0) iV.splice(i,1);
   renderPdvCarrinho();
 }
-function pdvLimpar() { iV=[]; document.getElementById('pdv-desc').value=0; renderPdvCarrinho(); }
+function pdvLimpar() { iV=[]; document.getElementById('pdv-desc').value=0; document.getElementById('pdv-desc-tipo').value='valor'; renderPdvCarrinho(); }
 function pdvSubtotal() { return iV.reduce((sum,it)=>sum + Number(it.quantidade||0)*Number(it.preco_unitario||0),0); }
 function numeroPdv(value){let s=String(value??'').trim();if(!s)return 0;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:0;}
-function pdvTotal() { return Math.max(0,pdvSubtotal()-numeroPdv(document.getElementById('pdv-desc')?.value)); }
+function pdvDescontoValor(subtotal=pdvSubtotal()) { const informado=Math.max(0,numeroPdv(document.getElementById('pdv-desc')?.value)); return document.getElementById('pdv-desc-tipo')?.value==='percentual' ? Math.min(subtotal,subtotal* Math.min(100,informado)/100) : Math.min(subtotal,informado); }
+function pdvTotal() { return Math.max(0,pdvSubtotal()-pdvDescontoValor()); }
 function renderPdvCarrinho() {
   const body=document.getElementById('pdv-cart-body'); if(!body)return;
   const sub=pdvSubtotal(), total=pdvTotal();
@@ -2755,17 +2756,17 @@ async function concluirPdv(){
   if(cashTotal>0&&received<cashTotal){document.getElementById('a-pdv-checkout').innerHTML='<div class="alrt ad"><i class="ti ti-alert-circle"></i>O dinheiro recebido é menor que a parte em dinheiro.</div>';return;}
   if(hasDue&&!document.getElementById('pdv-cli').value){document.getElementById('a-pdv-checkout').innerHTML='<div class="alrt ad"><i class="ti ti-alert-circle"></i>Selecione um cliente para a parte a prazo.</div>';return;}
   btn.disabled=true;btn.innerHTML='<span class="spin-inline"></span> Salvando...';_operacaoEmAndamento=true;
-  try{const data=document.getElementById('pdv-data').value||hj(),cliId=document.getElementById('pdv-cli').value||null,desc=numeroPdv(document.getElementById('pdv-desc').value),methods=pdvPagamentos.map(p=>p.metodo).join(' + '),v=await dbInsert('vendas',{workspace_id:wsId(),cliente_id:cliId,data,total,desconto:desc,pagamento:methods,status:'Concluída',fin_status:hasDue?'prazo':'pago',observacoes:document.getElementById('pdv-ob').value.trim()});
+  try{const data=document.getElementById('pdv-data').value||hj(),cliId=document.getElementById('pdv-cli').value||null,desc= pdvDescontoValor(),descTipo=document.getElementById('pdv-desc-tipo')?.value||'valor',descInformado=numeroPdv(document.getElementById('pdv-desc').value),methods=pdvPagamentos.map(p=>p.metodo).join(' + '),v=await dbInsert('vendas',{workspace_id:wsId(),cliente_id:cliId,data,total,desconto:desc,pagamento:methods,status:'Concluída',fin_status:hasDue?'prazo':'pago',observacoes:document.getElementById('pdv-ob').value.trim()});
     for(const it of iV){await dbInsert('venda_itens',{venda_id:v.id,...it});const p=_pdvProdutos.find(x=>String(x.id)===String(it.produto_id));if(p){const estoque=Math.max(0,Number(p.estoque||0)-Number(it.quantidade||0));await dbUpdate('produtos',p.id,{estoque});p.estoque=estoque;}}
     let pagamentosDetalhados=true;for(const p of pdvPagamentos){try{await dbInsert('venda_pagamentos',{venda_id:v.id,workspace_id:wsId(),metodo:p.metodo,valor:Number(p.valor||0),valor_recebido:p.metodo==='Dinheiro'?received:null,troco:p.metodo==='Dinheiro'?Math.max(0,received-cashTotal):0});}catch(e){pagamentosDetalhados=false;console.warn('Pagamentos divididos: execute supabase_pix_pagamentos.sql',e);}}
     for(const p of pdvPagamentos.filter(x=>x.metodo!=='A prazo'))await dbInsert('lancamentos',{workspace_id:wsId(),descricao:'Venda '+String(v.id).slice(-6)+' - '+p.metodo,tipo:'receita',categoria:'Vendas',valor:Number(p.valor||0),data,status:'confirmado',metodo:p.metodo});
     if(hasDue){const due=pdvPagamentos.filter(x=>x.metodo==='A prazo').reduce((a,p)=>a+Number(p.valor||0),0);await dbInsert('contas_receber',{workspace_id:wsId(),cliente_id:cliId,descricao:'Venda '+String(v.id).slice(-6),vencimento:document.getElementById('pdv-venc').value||data,valor:due,status:'aberto',categoria:'Venda'});}
-    const clienteSelecionado=document.getElementById('pdv-cli');if(!pagamentosDetalhados)mostrarToast('Venda salva. Execute a migração SQL para registrar o detalhamento dos pagamentos.','error');prepararComprovantePdv({venda:v,itens:iV.map(it=>({...it})),data,total,pagamentos:pdvPagamentos,recebido:received,cliente:{nome:clienteSelecionado?.selectedOptions?.[0]?.textContent||'Consumidor final'}});fecharPdvFechamento();pdvLimpar();await rPdv();updBadges();abrirComprovantePdv();mostrarToast('Venda finalizada com sucesso!','success');
+    const clienteSelecionado=document.getElementById('pdv-cli');if(!pagamentosDetalhados)mostrarToast('Venda salva. Execute a migração SQL para registrar o detalhamento dos pagamentos.','error');prepararComprovantePdv({venda:v,itens:iV.map(it=>({...it})),data,total,descontoTipo:descTipo,descontoInformado:descInformado,pagamentos:pdvPagamentos,recebido:received,cliente:{nome:clienteSelecionado?.selectedOptions?.[0]?.textContent||'Consumidor final'}});fecharPdvFechamento();pdvLimpar();await rPdv();updBadges();abrirComprovantePdv();mostrarToast('Venda finalizada com sucesso!','success');
   }catch(e){const raw=String(e?.message||e||'Erro desconhecido');const msg=/fetch|network|comunicação/i.test(raw)?'Sem comunicação com o servidor. Verifique a internet e tente novamente.':/relation .* does not exist|venda_pagamentos/i.test(raw)?'A migração de pagamentos divididos ainda não foi executada no Supabase.':raw;document.getElementById('a-pdv-checkout').innerHTML=`<div class="alrt ad"><i class="ti ti-alert-circle"></i>Erro ao concluir: ${escapeHtml(msg)}</div>`;}
   _operacaoEmAndamento=false;btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i>Confirmar venda';
 }
 
-function prepararComprovantePdv({venda,itens,data,total,pagamentos,recebido,cliente}) {
+function prepararComprovantePdv({venda,itens,data,total,descontoTipo='valor',descontoInformado=0,pagamentos,recebido,cliente}) {
   const preview=document.getElementById('pdv-receipt-preview'); if(!preview)return;
   const rawLogo=localStorage.getItem(PDV_LOGO_KEY+(wsId()||'default'))||'';
   const logo=/^data:image\//.test(rawLogo)?`<img class="receipt-logo" src="${rawLogo}" alt="Logo">`:'';
@@ -2775,7 +2776,7 @@ function prepararComprovantePdv({venda,itens,data,total,pagamentos,recebido,clie
     <div class="receipt-row"><span>Cliente:</span><b>${escapeHtml(clienteNome)}</b></div>
     <div class="receipt-items">${itens.map(it=>`<div class="receipt-item"><span class="receipt-item-name">${escapeHtml(it.nome_produto)}<br><small>${it.quantidade} × ${R(it.preco_unitario)}</small></span><b class="receipt-item-meta">${R(it.quantidade*it.preco_unitario)}</b></div>`).join('')}</div>
     <div class="receipt-row"><span>Subtotal</span><span>${R(itens.reduce((s,it)=>s+it.quantidade*it.preco_unitario,0))}</span></div>
-    ${Number(venda?.desconto||0)>0?`<div class="receipt-row"><span>Desconto</span><span>- ${R(venda.desconto)}</span></div>`:''}
+    ${Number(venda?.desconto||0)>0?`<div class="receipt-row"><span>Desconto${descontoTipo==='percentual'?` (${String(descontoInformado).replace('.',',')}%)`:''}</span><span>- ${R(venda.desconto)}</span></div>`:''}
     <div class="receipt-row receipt-total"><span>TOTAL</span><span>${R(total)}</span></div>
     <div class="receipt-row"><span>Pagamento</span><span>${escapeHtml(pagamentos.map(p=>p.metodo+' '+R(p.valor)).join(' + '))}</span></div>
     ${pagamentos.some(p=>p.metodo==='Dinheiro')?`<div class="receipt-row"><span>Recebido</span><span>${R(recebido)}</span></div><div class="receipt-row"><span>Troco</span><span>${R(troco)}</span></div>`:''}
