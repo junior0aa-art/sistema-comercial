@@ -262,6 +262,9 @@ textarea{resize:vertical;min-height:52px}
 
 /* ── Modern authentication ───────────────────────────── */
 #auth-screen{background:radial-gradient(circle at 15% 10%,#dbeafe 0,transparent 34%),linear-gradient(135deg,#eff6ff 0%,#f8fafc 48%,#eef2ff 100%);position:relative;overflow:hidden}#auth-screen:before,#auth-screen:after{content:"";position:absolute;border-radius:50%;filter:blur(2px);opacity:.45;pointer-events:none}#auth-screen:before{width:360px;height:360px;background:#bfdbfe;right:-140px;top:-130px}#auth-screen:after{width:300px;height:300px;background:#ddd6fe;left:-130px;bottom:-120px}.auth-card{position:relative;z-index:1;width:430px;padding:34px 36px;border:1px solid rgba(255,255,255,.85);border-radius:22px;background:rgba(255,255,255,.88);box-shadow:0 24px 70px rgba(30,64,175,.16),0 4px 14px rgba(15,23,42,.06);backdrop-filter:blur(16px)}.auth-logo{font-size:25px;letter-spacing:-.02em;color:#172554}.auth-logo:first-letter{font-size:28px}.auth-sub{font-size:13px;color:#64748b;margin-bottom:24px}.auth-tabs{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:10px;padding:4px;margin-bottom:22px;border-bottom:1px solid #e2e8f0}.auth-tab{flex:1;border:0;border-radius:7px;padding:10px 14px;margin:0;font-weight:500}.auth-tab.active{background:#fff;color:#2563eb;border:0;box-shadow:0 2px 7px rgba(15,23,42,.08)}.auth-card label{color:#475569}.auth-card input,.auth-card select{min-height:42px;border-color:#cbd5e1;border-radius:9px;background:rgba(255,255,255,.92)}.auth-card input:focus,.auth-card select:focus{border-color:#3b82f6;box-shadow:0 0 0 4px rgba(59,130,246,.12)}.auth-card .btn-auth{height:44px;border-radius:9px;background:linear-gradient(135deg,#2563eb,#4f46e5);box-shadow:0 8px 18px rgba(37,99,235,.2);font-size:13px;font-weight:600}.auth-segment-label{display:flex;align-items:center;gap:6px;margin-bottom:5px}.auth-segment-help{font-size:11px;color:#64748b;margin-top:5px;line-height:1.4}@media(max-width:560px){.auth-card{width:calc(100vw - 28px);padding:26px 20px;border-radius:18px}.auth-logo{font-size:22px}}
+
+/* ── Período de teste SaaS ───────────────────────────── */
+.trial-banner{display:flex;align-items:center;gap:10px;padding:11px 13px;margin-bottom:14px;border-radius:var(--rad);background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:12px}.trial-banner.warn{background:#fffbeb;border-color:#fcd34d;color:#92400e}.trial-days-edit{display:flex;align-items:center;gap:5px;min-width:145px}.trial-days-edit input{width:64px;padding:5px 6px;font-size:12px}.trial-days-edit .btn{min-height:29px;padding:4px 7px}
 </style>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1d4ed8">
@@ -584,7 +587,7 @@ textarea{resize:vertical;min-height:52px}
         <div class="saas-admin-kpis" id="admin-saas-kpis"></div>
         <div class="card">
           <div class="saas-admin-toolbar"><div class="f" style="flex:1"><label>Buscar empresa</label><input id="admin-saas-busca" placeholder="Nome da empresa..." oninput="filtrarAdminSaas()"></div><div class="f"><label>Status</label><select id="admin-saas-status" onchange="filtrarAdminSaas()"><option value="">Todos</option><option value="ativo">Ativos</option><option value="pendente">Pendentes</option><option value="bloqueado">Bloqueados</option></select></div><button class="btn" onclick="rAdminSaas()"><i class="ti ti-refresh"></i>Atualizar</button></div>
-          <div class="tw"><table class="saas-admin-table"><thead><tr><th>Empresa</th><th style="width:90px">Plano</th><th style="width:90px">Status</th><th style="width:105px">Vencimento</th><th style="width:80px">Usuários</th><th style="width:90px">Vendas</th><th style="width:245px">Ações</th></tr></thead><tbody id="admin-saas-tb"><tr><td colspan="7" class="emp">Carregando...</td></tr></tbody></table></div>
+          <div class="tw"><table class="saas-admin-table"><thead><tr><th>Empresa</th><th style="width:90px">Plano</th><th style="width:90px">Status</th><th style="width:105px">Vencimento</th><th style="width:180px">Teste (dias)</th><th style="width:80px">Usuários</th><th style="width:90px">Vendas</th><th style="width:245px">Ações</th></tr></thead><tbody id="admin-saas-tb"><tr><td colspan="8" class="emp">Carregando...</td></tr></tbody></table></div>
           <div class="saas-admin-note">Os dados são carregados por função RPC protegida. Usuários comuns não podem acessar nem alterar esta central.</div>
         </div>
       </div>
@@ -592,6 +595,7 @@ textarea{resize:vertical;min-height:52px}
       <!-- SAAS -->
       <div class="page" id="page-saas">
         <div class="stl"><i class="ti ti-rocket"></i>Uso do plano</div>
+        <div id="saas-trial-info"></div>
         <div class="g4" id="saas-uso" style="margin-bottom:14px"></div>
         <div class="card"><div class="stl"><i class="ti ti-crown"></i>Planos disponíveis</div><div class="g3" id="saas-planos"></div></div>
         <div class="card">
@@ -626,7 +630,7 @@ textarea{resize:vertical;min-height:52px}
 
 <!-- ══ MODAIS ═══════════════════════════════════════════════ -->
 <!-- Conta bloqueada -->
-<div id="blocked-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--bg3)"><div class="auth-card" style="text-align:center"><i class="ti ti-lock" style="font-size:42px;color:var(--red-txt)"></i><div class="auth-logo" style="margin-top:10px">Acesso bloqueado</div><div class="auth-sub" id="blocked-msg">A assinatura desta empresa está bloqueada. Entre em contato com o administrador.</div><button class="btn-auth" onclick="doLogout()">Sair</button></div></div>
+<div id="blocked-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--bg3)"><div class="auth-card" style="text-align:center"><i class="ti ti-lock" style="font-size:42px;color:var(--red-txt)"></i><div class="auth-logo" id="blocked-title" style="margin-top:10px">Acesso bloqueado</div><div class="auth-sub" id="blocked-msg">A assinatura desta empresa está bloqueada. Entre em contato com o administrador.</div><button class="btn-auth" onclick="doLogout()">Sair</button></div></div>
 
 <!-- Registro de pagamento SaaS -->
 <div class="mw" id="mw-admin-pagto"><div class="mo"><div class="mh"><h2><i class="ti ti-receipt"></i> Registrar pagamento</h2><button class="xb" onclick="fecharM('admin-pagto')">&times;</button></div><div class="mb"><div id="a-admin-pagto"></div><div style="font-size:13px;margin-bottom:12px">Empresa: <b id="admin-pagto-empresa">—</b></div><input type="hidden" id="admin-pagto-id"><div class="fg"><div class="f"><label>Valor (R$)</label><input id="admin-pagto-valor" type="number" min="0" step="0.01"></div><div class="f"><label>Data do pagamento</label><input id="admin-pagto-data" type="date"></div><div class="f"><label>Novo vencimento</label><input id="admin-pagto-venc" type="date"></div><div class="f"><label>Método</label><select id="admin-pagto-metodo"><option>PIX</option><option>Boleto</option><option>Cartão</option><option>Transferência</option><option>Dinheiro</option></select></div><div class="f s2"><label>Referência / comprovante</label><input id="admin-pagto-ref" placeholder="Número, ID ou referência"></div><div class="f s2"><label>Observações</label><textarea id="admin-pagto-ob"></textarea></div></div></div><div class="mf"><button class="btn" onclick="fecharM('admin-pagto')">Cancelar</button><button class="btn bp" id="btn-admin-pagto" onclick="salvarAdminPagamento()"><i class="ti ti-check"></i>Registrar pagamento</button></div></div></div>
@@ -1282,13 +1286,22 @@ async function loadUserContext() {
   if (error) throw error;
   ME = data; WS = data.workspaces;
 }
-
-function showBlocked() {
+function statusTrialWS(){
+  if(!WS || String(WS.plano||'free').toLowerCase()!=='free') return {ativo:true};
+  const inicio=new Date(WS.trial_started_at||WS.created_at||Date.now());
+  const dias=Math.max(0,Number(WS.trial_days==null?14:WS.trial_days));
+  const fim=new Date(inicio.getTime()+dias*86400000);
+  const restante=Math.max(0,Math.ceil((fim.getTime()-Date.now())/86400000));
+  return {ativo:Date.now()<fim.getTime(),dias,restante,fim};
+}
+function showBlocked(tipo='status') {
   document.getElementById('loading-screen').classList.add('hide');
   document.getElementById('auth-screen').classList.remove('show');
   document.getElementById('app').classList.remove('show');
   document.getElementById('blocked-screen').style.display='flex';
-  document.getElementById('blocked-msg').textContent = WS?.motivo_bloqueio || 'A assinatura desta empresa está bloqueada. Entre em contato com o administrador.';
+  const fim=statusTrialWS().fim;
+  document.getElementById('blocked-title').textContent=tipo==='trial'?'Período de teste encerrado':'Acesso bloqueado';
+  document.getElementById('blocked-msg').textContent = tipo==='trial' ? `Seu período grátis de ${WS?.trial_days??14} dias terminou${fim?' em '+fim.toLocaleDateString('pt-BR'):''}. Para continuar usando o sistema, compre um plano de acesso e fale com o administrador.` : (WS?.motivo_bloqueio || 'A assinatura desta empresa está bloqueada. Entre em contato com o administrador.');
 }
 
 function showAuth() {
@@ -1305,7 +1318,8 @@ function paginaInicialSegmento(){const seg=String(WS?.segmento||'comercial').toL
 function showApp() {
   document.getElementById('loading-screen').classList.add('hide');
   document.getElementById('auth-screen').classList.remove('show');
-  if (WS?.status === 'bloqueado') { showBlocked(); return; }
+  if (WS?.status === 'bloqueado') { showBlocked('status'); return; }
+  if (!statusTrialWS().ativo) { showBlocked('trial'); return; }
   document.getElementById('blocked-screen').style.display = 'none';
   document.getElementById('app').classList.add('show');
   document.getElementById('ni-admin-saas').style.display = ME?.role === 'superadmin' ? '' : 'none';
@@ -2511,6 +2525,8 @@ const PLANOS=[
 ];
 async function rSaas(){
   const plano=PLANOS.find(p=>p.id===WS.plano)||PLANOS[1];
+  const tr=statusTrialWS(), trialBox=document.getElementById('saas-trial-info');
+  if(trialBox) trialBox.innerHTML=plano.id==='free' ? `<div class="trial-banner ${tr.restante<=3?'warn':''}"><i class="ti ti-clock"></i><span><b>Período de teste grátis:</b> ${tr.ativo?`${tr.restante} dia(s) restante(s).`:'encerrado.'} Para continuar após o teste, adquira um plano de acesso.</span></div>` : '<div class="trial-banner"><i class="ti ti-circle-check"></i><span>Plano pago ativo. O período de teste não limita este workspace.</span></div>';
   let pC=0,cC=0,uC=0;
   try{
     if(_isOnline){
@@ -2595,7 +2611,7 @@ async function rAdminSaas(){
     const {data,error}=await sb.rpc('admin_saas_listar_workspaces'); if(error)throw error;
     _adminSaasWorkspaces=data||[]; renderAdminSaas();
   }catch(e){
-    tb.innerHTML=`<tr><td colspan="7"><div class="alrt ad"><i class="ti ti-alert-circle"></i>${escapeHtml(e.message||'Não foi possível carregar a Central SaaS. Execute a migração SQL e promova seu usuário a superadmin.')}</div></td></tr>`;
+    tb.innerHTML=`<tr><td colspan="8"><div class="alrt ad"><i class="ti ti-alert-circle"></i>${escapeHtml(e.message||'Não foi possível carregar a Central SaaS. Execute a migração SQL e promova seu usuário a superadmin.')}</div></td></tr>`;
     document.getElementById('admin-saas-kpis').innerHTML='';
   }
 }
@@ -2607,8 +2623,13 @@ function renderAdminSaas(){
 function filtrarAdminSaas(){
   const q=(document.getElementById('admin-saas-busca')?.value||'').toLowerCase(), st=document.getElementById('admin-saas-status')?.value||'';
   const rows=_adminSaasWorkspaces.filter(w=>(!q||(w.nome||'').toLowerCase().includes(q))&&(!st||w.status===st));
-  const tb=document.getElementById('admin-saas-tb'); if(!rows.length){tb.innerHTML='<tr><td colspan="7" class="emp">Nenhuma empresa encontrada.</td></tr>';return;}
-  tb.innerHTML=rows.map(w=>{const venc=w.vencimento||'—', status=w.status||'ativo', cls=status==='ativo'?'st-ativo':status==='bloqueado'?'st-bloqueado':'st-pendente';return `<tr><td><b>${escapeHtml(w.nome||'Sem nome')}</b><small style="display:block;color:var(--txt2)">${w.total_usuarios||0} usuário(s) · ${R(w.receita_total||0)} em vendas</small></td><td>${escapeHtml(w.plano||'—')}</td><td><span class="saas-status ${cls}"><i class="ti ${status==='ativo'?'ti-circle-check':status==='bloqueado'?'ti-lock':'ti-clock'}"></i>${escapeHtml(status)}</span></td><td>${escapeHtml(venc)}</td><td>${w.total_usuarios||0}</td><td>${w.total_vendas||0}</td><td><div class="saas-actions">${status==='bloqueado'?`<button class="btn sm bsu" onclick="alterarStatusSaas('${w.id}','ativo')"><i class="ti ti-lock-open"></i>Liberar</button>`:`<button class="btn sm bda" onclick="abrirBloqueioSaas('${w.id}')"><i class="ti ti-lock"></i>Bloquear</button>`}<button class="btn sm bp" onclick="abrirAdminPagamento('${w.id}','${escapeHtml(w.nome||'')}','${w.valor_mensal||0}')"><i class="ti ti-cash"></i>Pagamento</button></div></td></tr>`;}).join('');
+  const tb=document.getElementById('admin-saas-tb'); if(!rows.length){tb.innerHTML='<tr><td colspan="8" class="emp">Nenhuma empresa encontrada.</td></tr>';return;}
+  tb.innerHTML=rows.map(w=>{const venc=w.vencimento||'—', status=w.status||'ativo', cls=status==='ativo'?'st-ativo':status==='bloqueado'?'st-bloqueado':'st-pendente';return `<tr><td><b>${escapeHtml(w.nome||'Sem nome')}</b><small style="display:block;color:var(--txt2)">${w.total_usuarios||0} usuário(s) · ${R(w.receita_total||0)} em vendas</small></td><td>${escapeHtml(w.plano||'—')}</td><td><span class="saas-status ${cls}"><i class="ti ${status==='ativo'?'ti-circle-check':status==='bloqueado'?'ti-lock':'ti-clock'}"></i>${escapeHtml(status)}</span></td><td>${escapeHtml(venc)}</td><td><div class="trial-days-edit"><input type="number" min="0" max="36500" value="${Number(w.trial_days==null?14:w.trial_days)}" id="trial-days-${w.id}" title="Dias de teste"><button class="btn sm bp" onclick="salvarTrialSaas('${w.id}')" title="Salvar dias de teste"><i class="ti ti-device-floppy"></i></button></div><small style="display:block;color:var(--txt2)">até ${escapeHtml(w.trial_ends_at||'—')}</small></td><td>${w.total_usuarios||0}</td><td>${w.total_vendas||0}</td><td><div class="saas-actions">${status==='bloqueado'?`<button class="btn sm bsu" onclick="alterarStatusSaas('${w.id}','ativo')"><i class="ti ti-lock-open"></i>Liberar</button>`:`<button class="btn sm bda" onclick="abrirBloqueioSaas('${w.id}')"><i class="ti ti-lock"></i>Bloquear</button>`}<button class="btn sm bp" onclick="abrirAdminPagamento('${w.id}','${escapeHtml(w.nome||'')}','${w.valor_mensal||0}')"><i class="ti ti-cash"></i>Pagamento</button></div></td></tr>`;}).join('');
+}
+async function salvarTrialSaas(id){
+  const input=document.getElementById('trial-days-'+id), dias=Number(input?.value);
+  if(!Number.isInteger(dias)||dias<0||dias>36500){mostrarToast('Informe entre 0 e 36500 dias.','error');return;}
+  try{const {error}=await sb.rpc('admin_saas_configurar_trial',{p_workspace_id:id,p_trial_days:dias});if(error)throw error;await rAdminSaas();mostrarToast('Período de teste atualizado.','success');}catch(e){mostrarToast('Erro ao salvar teste: '+e.message,'error');}
 }
 async function alterarStatusSaas(id,status,motivo=''){
   try{const {error}=await sb.rpc('admin_saas_atualizar_workspace',{p_workspace_id:id,p_status:status,p_motivo:motivo});if(error)throw error;await rAdminSaas();mostrarToast(status==='ativo'?'Empresa liberada.':'Empresa bloqueada.','success');}catch(e){mostrarToast('Erro: '+e.message,'error');}
