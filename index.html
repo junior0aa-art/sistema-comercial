@@ -265,7 +265,7 @@ textarea{resize:vertical;min-height:52px}
 
 /* ── Período de teste SaaS ───────────────────────────── */
 .trial-banner{display:flex;align-items:center;gap:10px;padding:11px 13px;margin-bottom:14px;border-radius:var(--rad);background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:12px}.trial-banner.warn{background:#fffbeb;border-color:#fcd34d;color:#92400e}.trial-days-edit{display:flex;align-items:center;gap:5px;min-width:145px}.trial-days-edit input{width:64px;padding:5px 6px;font-size:12px}.trial-days-edit .btn{min-height:29px;padding:4px 7px}
-</style>
+.filial-switcher{display:flex;align-items:center;gap:6px;margin-left:auto}.filial-switcher select{height:34px;min-width:165px;border:1px solid var(--bdr);border-radius:8px;background:var(--bg);color:var(--txt);padding:0 8px;font-size:12px}.filial-share{color:var(--green-txt);font-size:11px}.filial-segment{font-size:11px;color:var(--txt2);display:block;margin-top:2px}</style>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1d4ed8">
 </head>
@@ -379,7 +379,7 @@ textarea{resize:vertical;min-height:52px}
     <div class="ns">Estoque</div>
     <div class="ni" onclick="nav('est')" id="ni-est"><i class="ti ti-box" aria-hidden="true"></i>Controle de estoque<span class="nbadge" id="b-est" style="display:none">!</span></div>
     <div class="ns">Sistema</div>
-    <div class="ni" onclick="nav('saas')" id="ni-saas"><i class="ti ti-settings" aria-hidden="true"></i>Plano & workspace</div>
+    <div class="ni" onclick="nav('saas')" id="ni-saas"><i class="ti ti-settings" aria-hidden="true"></i>Plano & workspace</div><div class="ni" onclick="nav('filiais')" id="ni-filiais"><i class="ti ti-building-community" aria-hidden="true"></i>Filiais</div>
     <div class="ni" onclick="exportarBackup()" id="ni-backup" title="Baixar backup desta empresa"><i class="ti ti-database-export" aria-hidden="true"></i>Backup</div>
     <div class="ni" onclick="nav('admin-saas')" id="ni-admin-saas" style="display:none"><i class="ti ti-shield-lock" aria-hidden="true"></i>Central SaaS</div>
     <div class="sf">
@@ -405,7 +405,7 @@ textarea{resize:vertical;min-height:52px}
     </div>
     <div class="topbar">
       <button class="mobile-menu-btn" aria-label="Abrir menu" onclick="toggleMobileNav()"><i class="ti ti-menu-2"></i></button>
-      <h1 id="pg-ttl">Dashboard</h1>
+      <h1 id="pg-ttl">Dashboard</h1><div class="filial-switcher" id="filial-switcher" style="display:none"><i class="ti ti-building-community"></i><select id="filial-atual" onchange="selecionarFilial(this.value)" aria-label="Filial atual"></select></div>
       <div class="topbar-act" id="pg-act"></div>
     </div>
     <div class="content">
@@ -580,7 +580,7 @@ textarea{resize:vertical;min-height:52px}
         <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th>Produto</th><th style="width:90px">Código</th><th style="width:80px">Estoque</th><th style="width:65px">Unid.</th><th style="width:100px">Situação</th><th style="width:105px">Ajuste</th></tr></thead><tbody id="tb-est"><tr><td colspan="6" class="emp">Carregando...</td></tr></tbody></table></div></div>
       </div>
 
-      <!-- CENTRAL ADMINISTRATIVA SAAS -->
+      <!-- FILIAIS --><div class="page" id="page-filiais"><div id="a-filiais"></div><div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-building-community"></i>Filiais da empresa</div><button class="btn bp sm" onclick="abrirFilial()"><i class="ti ti-plus"></i>Nova filial</button></div><p style="font-size:12px;color:var(--txt2);margin:0 0 12px">Cada filial pode ter seu segmento e decidir se compartilha clientes entre Clínica e Barbearia.</p><div class="tw"><table><thead><tr><th>Filial</th><th>Segmento</th><th>Clientes</th><th>Status</th><th>Ações</th></tr></thead><tbody id="tb-filiais"><tr><td colspan="5" class="emp">Carregando...</td></tr></tbody></table></div></div></div><!-- CENTRAL ADMINISTRATIVA SAAS -->
       <div class="page" id="page-admin-saas">
         <div id="a-admin-saas"></div>
         <div class="saas-admin-danger"><i class="ti ti-shield-lock"></i> Central administrativa SaaS — ações nesta tela alteram o acesso de empresas inteiras.</div>
@@ -679,7 +679,7 @@ textarea{resize:vertical;min-height:52px}
   <div class="mf"><button class="btn" onclick="fecharM('cli')">Cancelar</button><button class="btn bp" id="btn-cli" onclick="salvarCli()"><i class="ti ti-device-floppy"></i>Salvar cliente</button></div>
 </div></div>
 
-<div class="mw" id="mw-forn"><div class="mo">
+<!-- Filial --><div class="mw" id="mw-filial"><div class="mo"><div class="mh"><h2 id="mfilial-t">Nova filial</h2><button class="xb" onclick="fecharM('filial')">&times;</button></div><div class="mb"><div id="a-mfilial"></div><div class="fg"><div class="f s2"><label>Nome da filial *</label><input id="fil-nome" placeholder="Ex.: Unidade Centro"></div><div class="f"><label>Código</label><input id="fil-codigo" placeholder="FIL-001"></div><div class="f"><label>Segmento</label><select id="fil-segmento"><option value="comercial">Comercial</option><option value="clinica">Clínica</option><option value="barbearia">Barbearia</option><option value="restaurante">Restaurante</option></select></div><div class="f"><label>Status</label><select id="fil-status"><option value="ativa">Ativa</option><option value="inativa">Inativa</option></select></div><div class="f s2"><label><input id="fil-compartilhar" type="checkbox" style="width:auto"> Compartilhar clientes entre Clínica e Barbearia</label><small style="color:var(--txt2);display:block;margin-top:5px">Permite visualizar os dois segmentos nesta filial.</small></div></div></div><div class="mf"><button class="btn" onclick="fecharM('filial')">Cancelar</button><button class="btn bp" id="btn-filial" onclick="salvarFilial()"><i class="ti ti-device-floppy"></i>Salvar filial</button></div></div></div><div class="mw" id="mw-forn"><div class="mo">
   <div class="mh"><h2 id="mf-t">Novo fornecedor</h2><button class="xb" onclick="fecharM('forn')">&times;</button></div>
   <div class="mb"><div id="a-mforn"></div><div class="fg">
     <div class="f s2"><label>Razão social *</label><input id="f-nm"></div>
@@ -865,7 +865,7 @@ function initSb() {
 }
 
 // ── ESTADO GLOBAL ───────────────────────────────────────────
-let SESSION = null, WS = null, ME = null;
+let SESSION = null, WS = null, ME = null, FILIAL = null, _filiais = [];
 let _produtos = [], _clientes = [], _fornecedores = [];
 let iV = [], modoVenda = 'venda', adjId = null, tipoC = 'cr';
 let editId = {};
@@ -978,14 +978,14 @@ function mostrarToast(msg, tipo='success') {
 // ── INDEXEDDB (OFFLINE) ─────────────────────────────────────
 const IDB_NAME = 'sistema_comercial_v1';
 let _dbLocal = null;
-const STORES = ['produtos','clientes','fornecedores','vendas','venda_itens',
+const STORES = ['filiais','produtos','clientes','fornecedores','vendas','venda_itens',
                 'orcamentos','orcamento_itens','lancamentos',
                 'contas_receber','contas_pagar','mov_estoque','venda_pagamentos','rest_produtos','rest_mesas','rest_pedidos','rest_pedido_itens','agenda_profissionais','agenda_servicos','agenda_agendamentos','sync_queue'];
 
 function abrirIDB() {
   return new Promise((resolve, reject) => {
     if (_dbLocal) { resolve(_dbLocal); return; }
-    const req = indexedDB.open(IDB_NAME, 5); // v5: adiciona agenda, profissionais e serviços
+    const req = indexedDB.open(IDB_NAME, 6); // v6: adiciona filiais e escopo de clientes
     req.onupgradeneeded = e => {
       const db = e.target.result;
       STORES.forEach(s => { if (!db.objectStoreNames.contains(s)) db.createObjectStore(s,{keyPath:'id'}); });
@@ -1285,7 +1285,15 @@ async function loadUserContext() {
   const { data, error } = await sb.from('usuarios').select('*, workspaces(*)').eq('auth_id', SESSION.user.id).single();
   if (error) throw error;
   ME = data; WS = data.workspaces;
+  await carregarFiliaisContexto();
 }
+async function carregarFiliaisContexto(){
+  try{const res=await sb.from('filiais').select('*').eq('workspace_id',wsId()).eq('status','ativa').order('nome');if(res.error)throw res.error;_filiais=res.data||[];for(const f of _filiais)await idbPut('filiais',f);}catch(e){try{_filiais=(await idbGetAll('filiais')).filter(f=>f.workspace_id===wsId()&&f.status!=='inativa');}catch(_){_filiais=[];}}
+  const saved=localStorage.getItem('filial_atual_'+wsId());FILIAL=_filiais.find(f=>String(f.id)===String(saved))||_filiais[0]||null;renderSeletorFilial();
+}
+function rotuloSegmento(s){return ({clinica:'Clínica',barbearia:'Barbearia',restaurante:'Restaurante',comercial:'Comercial'}[String(s||'').toLowerCase()]||s||'Comercial');}
+function renderSeletorFilial(){const box=document.getElementById('filial-switcher'),sel=document.getElementById('filial-atual');if(!box||!sel)return;const ativas=_filiais.filter(f=>f.status!=='inativa');box.style.display=ativas.length?'flex':'none';sel.innerHTML=ativas.map(f=>`<option value="${escapeHtml(f.id)}">${escapeHtml(f.nome)} · ${escapeHtml(rotuloSegmento(f.segmento))}</option>`).join('');if(FILIAL)sel.value=FILIAL.id;}
+function selecionarFilial(id){FILIAL=_filiais.find(f=>String(f.id)===String(id))||null;if(FILIAL)localStorage.setItem('filial_atual_'+wsId(),FILIAL.id);renderSeletorFilial();if(document.getElementById('page-cli')?.classList.contains('active'))rCli();if(document.getElementById('page-pdv')?.classList.contains('active'))rPdv();mostrarToast(`Filial atual: ${FILIAL?.nome||'nenhuma'}.`,'info');}
 function statusTrialWS(){
   if(!WS || String(WS.plano||'free').toLowerCase()!=='free') return {ativo:true};
   const inicio=new Date(WS.trial_started_at||WS.created_at||Date.now());
@@ -1324,6 +1332,7 @@ function showApp() {
   document.getElementById('app').classList.add('show');
   document.getElementById('ni-admin-saas').style.display = ME?.role === 'superadmin' ? '' : 'none';
   atualizarMenuRestaurante();
+  renderSeletorFilial();
   document.getElementById('ws-nm').textContent  = WS.nome;
   document.getElementById('ws-sub').textContent = ME.role;
   document.getElementById('s-nm').textContent   = ME.nome;
@@ -1553,7 +1562,7 @@ function nav(p) {
   document.querySelectorAll('.ni').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p)?.classList.add('active');
   document.getElementById('ni-'+p)?.classList.add('active');
-  const T = {dash:'Dashboard',pdv:'PDV',rest:'Restaurante',cardapio:'Cardápio',agenda:'Agendamentos', 'agenda-servicos':'Serviços e produtos',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace',backup:'Backup','admin-saas':'Central SaaS'};
+  const T = {dash:'Dashboard',pdv:'PDV',rest:'Restaurante',cardapio:'Cardápio',agenda:'Agendamentos', 'agenda-servicos':'Serviços e produtos',prod:'Produtos',cli:'Clientes',forn:'Fornecedores',vend:'Vendas',orc:'Orçamentos',fin:'Fluxo de caixa',cr:'Contas a receber',cp:'Contas a pagar',pgto:'Pagamentos',est:'Controle de estoque',saas:'Plano & workspace',filiais:'Filiais',backup:'Backup','admin-saas':'Central SaaS'};
   document.getElementById('pg-ttl').textContent = T[p]||p;
   if(['rest','cardapio'].includes(p)&&!segmentoRestAtivo()){nav('dash');return;}
   if(['agenda','agenda-servicos'].includes(p)&&!segmentoAgendaAtivo()){nav('dash');return;}
@@ -1563,6 +1572,7 @@ function nav(p) {
     'agenda-servicos':`<button class="btn bp sm" onclick="abrirServicoAgenda()"><i class="ti ti-plus"></i>Novo serviço</button>`,
     cardapio:`<button class="btn bp sm" onclick="abrirProdutoRest()"><i class="ti ti-plus"></i>Novo item</button>`,
     rest:`<button class="btn bp sm" onclick="abrirNovoPedidoRest()"><i class="ti ti-plus"></i>Novo pedido</button>`,
+    filiais:`<button class="btn bp sm" onclick="abrirFilial()"><i class="ti ti-plus"></i>Nova filial</button>`,
     prod:`<button class="btn bp sm" onclick="openProd()"><i class="ti ti-plus"></i>Novo produto</button>`,
     cli: `<button class="btn bp sm" onclick="openCli()"><i class="ti ti-plus"></i>Novo cliente</button>`,
     forn:`<button class="btn bp sm" onclick="openForn()"><i class="ti ti-plus"></i>Novo fornecedor</button>`,
@@ -1573,7 +1583,7 @@ function nav(p) {
     cp:  `<button class="btn bp sm" onclick="openConta('cp')"><i class="ti ti-plus"></i>Nova conta</button>`,
   };
   document.getElementById('pg-act').innerHTML = A[p]||'';
-  const pages = {dash:rDash,pdv:rPdv,rest:rRestaurante,cardapio:()=>rCardapio(),agenda:rAgenda,'agenda-servicos':()=>rAgendaServicos(),prod:rProd,cli:rCli,forn:rForn,vend:rVend,orc:rOrc,fin:rFin,cr:rCR,cp:rCP,pgto:rPgto,est:rEst,saas:rSaas,'admin-saas':rAdminSaas};
+  const pages = {dash:rDash,pdv:rPdv,rest:rRestaurante,cardapio:()=>rCardapio(),agenda:rAgenda,'agenda-servicos':()=>rAgendaServicos(),prod:rProd,cli:rCli,forn:rForn,vend:rVend,orc:rOrc,fin:rFin,cr:rCR,cp:rCP,pgto:rPgto,est:rEst,saas:rSaas,filiais:rFiliais,'admin-saas':rAdminSaas};
   if (pages[p]) pages[p]().catch(e=>console.error('[nav]',p,e));
 }
 
@@ -1788,6 +1798,15 @@ async function salvarProd() {
   setLoading('btn-prod',false,'Salvar produto');
 }
 
+// ── FILIAIS E ESCOPO DE CLIENTES ────────────────────────────
+function segmentoClienteAtual(){const s=String(FILIAL?.segmento||WS?.segmento||'comercial').toLowerCase();if(s.includes('clinica'))return 'clinica';if(s.includes('barbearia'))return 'barbearia';return s;}
+function clienteVisivel(c){const seg=String(c.segmento||'').toLowerCase(),atual=segmentoClienteAtual(),agenda=['clinica','barbearia'];if(!agenda.includes(atual))return !FILIAL||!c.filial_id||String(c.filial_id)===String(FILIAL.id);if(FILIAL?.compartilhar_clientes_segmentos)return agenda.includes(seg);return (!c.filial_id||String(c.filial_id)===String(FILIAL.id))&&seg===atual;}
+function obterClientesVisiveis(data){return (data||[]).filter(clienteVisivel);}
+async function rFiliais(){const tb=document.getElementById('tb-filiais');if(!tb)return;try{if(_isOnline){const res=await sb.from('filiais').select('*').eq('workspace_id',wsId()).order('nome');if(res.error)throw res.error;_filiais=res.data||[];await idbClear('filiais');for(const f of _filiais)await idbPut('filiais',f);}else _filiais=(await idbGetAll('filiais')).filter(f=>f.workspace_id===wsId());renderSeletorFilial();if(!_filiais.length){tb.innerHTML='<tr><td colspan="5" class="emp">Nenhuma filial cadastrada. Crie a primeira filial.</td></tr>';return;}tb.innerHTML=_filiais.map(f=>`<tr><td><b>${escapeHtml(f.nome)}</b><small class="filial-segment">${escapeHtml(f.codigo||'')}</small></td><td>${escapeHtml(rotuloSegmento(f.segmento))}</td><td>${f.compartilhar_clientes_segmentos?'<span class="filial-share"><i class="ti ti-share-2"></i> Compartilhados</span>':'Somente segmento'}</td><td><span class="badge ${f.status==='ativa'?'bs':'bw'}">${f.status==='ativa'?'Ativa':'Inativa'}</span></td><td><div class="tda"><button class="btn sm" onclick="abrirFilial('${f.id}')"><i class="ti ti-edit"></i></button><button class="btn sm bda" onclick="excluirFilial('${f.id}')"><i class="ti ti-trash"></i></button></div></td></tr>`).join('');}catch(e){tb.innerHTML=`<tr><td colspan="5" class="emp">Erro: ${escapeHtml(e.message)}</td></tr>`;}}
+function abrirFilial(id=null){const f=id?_filiais.find(x=>String(x.id)===String(id)):null;document.getElementById('mfilial-t').textContent=f?'Editar filial':'Nova filial';document.getElementById('a-mfilial').replaceChildren();document.getElementById('fil-nome').value=f?.nome||'';document.getElementById('fil-codigo').value=f?.codigo||'';document.getElementById('fil-segmento').value=f?.segmento||'comercial';document.getElementById('fil-status').value=f?.status||'ativa';document.getElementById('fil-compartilhar').checked=!!f?.compartilhar_clientes_segmentos;document.getElementById('btn-filial').dataset.id=id||'';abrirM('filial');}
+async function salvarFilial(){const nome=document.getElementById('fil-nome').value.trim();if(!nome){alrt('mfilial','Informe o nome da filial.','d');return;}const id=document.getElementById('btn-filial').dataset.id;const payload={nome,codigo:document.getElementById('fil-codigo').value.trim(),segmento:document.getElementById('fil-segmento').value,status:document.getElementById('fil-status').value,compartilhar_clientes_segmentos:document.getElementById('fil-compartilhar').checked};setLoading('btn-filial',true);try{if(id)await dbUpdate('filiais',id,payload);else await dbInsert('filiais',{workspace_id:wsId(),...payload});fecharM('filial');await carregarFiliaisContexto();await rFiliais();mostrarToast('Filial salva.','success');}catch(e){alrt('mfilial','Erro: '+e.message,'d');}setLoading('btn-filial',false,'Salvar filial');}
+async function excluirFilial(id){const f=_filiais.find(x=>String(x.id)===String(id));if(!confirm(`Excluir a filial "${f?.nome||''}"? Os clientes serão mantidos sem filial.`))return;try{await dbDeleteItem('filiais',id);if(String(FILIAL?.id)===String(id))FILIAL=null;await carregarFiliaisContexto();await rFiliais();mostrarToast('Filial excluída.','success');}catch(e){mostrarToast('Erro ao excluir filial: '+e.message,'error');}}
+
 // ── CLIENTES ─────────────────────────────────────────────────
 async function rCli(f) {
   document.getElementById('act-cli').innerHTML=`<button class="btn bp sm" onclick="openCli()"><i class="ti ti-plus"></i>Novo cliente</button>`;
@@ -1802,8 +1821,9 @@ async function rCli(f) {
     } else {
       data = (await idbGetAll('clientes')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     }
-    _clientes = data;
-    const l = f ? data.filter(c=>(c.nome+c.cpf_cnpj+c.cidade).toLowerCase().includes(f.toLowerCase())) : data;
+    const visiveis=obterClientesVisiveis(data);
+    _clientes = visiveis;
+    const l = f ? visiveis.filter(c=>(c.nome+c.cpf_cnpj+c.cidade).toLowerCase().includes(f.toLowerCase())) : visiveis;
     if (!l.length) { tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum cliente.</td></tr>'; return; }
     tb.innerHTML = l.map(c=>`<tr>
       <td style="font-family:monospace;font-weight:600;color:var(--blue-txt)">${c.codigo||'—'}</td>
@@ -1865,6 +1885,8 @@ async function salvarCli() {
       limite_credito:parseFloat(document.getElementById('c-lim').value)||0,
       status:        document.getElementById('c-st').value,
       observacoes:   document.getElementById('c-ob').value.trim(),
+      filial_id: FILIAL?.id||null,
+      segmento: segmentoClienteAtual(),
     };
     if (editId.cli) await dbUpdate('clientes',editId.cli,payload);
     else await dbInsert('clientes',{...payload,workspace_id:wsId()});
@@ -2703,7 +2725,8 @@ async function carregarClientesPdv() {
   const sel = document.getElementById('pdv-cli'); if (!sel) return;
   let lista = [];
   try {
-    lista = _isOnline ? ((await sb.from('clientes').select('id,nome').eq('workspace_id',wsId()).order('nome')).data||[]) : (await idbGetAll('clientes')).filter(c=>c.workspace_id===wsId());
+    const todos = _isOnline ? ((await sb.from('clientes').select('*').eq('workspace_id',wsId()).order('nome')).data||[]) : (await idbGetAll('clientes')).filter(c=>c.workspace_id===wsId());
+    lista = obterClientesVisiveis(todos);
   } catch(e) { lista = _clientes || []; }
   sel.innerHTML='<option value="">Consumidor final</option>';
   lista.forEach(c => sel.innerHTML += `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`);
