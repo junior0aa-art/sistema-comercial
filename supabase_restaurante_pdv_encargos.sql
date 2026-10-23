@@ -1,9 +1,10 @@
--- PDV avulso do Restaurante e encargos de mesa
+-- PDV avulso do Restaurante, fotos e encargos de mesa
 alter table public.produtos
   add column if not exists venda_rapida_restaurante boolean not null default false;
 
 alter table public.rest_produtos
-  add column if not exists venda_rapida_restaurante boolean not null default false;
+  add column if not exists venda_rapida_restaurante boolean not null default false,
+  add column if not exists foto_url text null;
 
 alter table public.vendas
   add column if not exists restaurante_cover numeric(12,2) not null default 0,
