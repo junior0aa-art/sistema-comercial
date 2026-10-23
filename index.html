@@ -370,7 +370,6 @@ textarea{resize:vertical;min-height:52px}
     <div class="ni" onclick="nav('pdv')" id="ni-pdv"><i class="ti ti-device-desktop-analytics" aria-hidden="true"></i>PDV</div>
     <div class="ni" onclick="nav('rest')" id="ni-rest" style="display:none"><i class="ti ti-tools-kitchen-2" aria-hidden="true"></i>Restaurante</div>
     <div class="ni" onclick="nav('vend')" id="ni-vend"><i class="ti ti-shopping-cart" aria-hidden="true"></i>Vendas</div><div class="ni" onclick="nav('comissoes')" id="ni-comissoes"><i class="ti ti-percentage" aria-hidden="true"></i>Comissões</div>
-    <div class="ns">Relatórios</div>
     <div class="ni" onclick="nav('orc')" id="ni-orc"><i class="ti ti-file-invoice" aria-hidden="true"></i>Orçamentos</div>
     <div class="ns">Financeiro</div>
     <div class="ni" onclick="nav('fin')" id="ni-fin"><i class="ti ti-chart-pie" aria-hidden="true"></i>Fluxo de caixa</div>
@@ -553,6 +552,8 @@ textarea{resize:vertical;min-height:52px}
       <!-- CONTAS A RECEBER -->
       <div class="page" id="page-cr">
         <div id="a-cr"></div>
+        <div class="agenda-head"><div><h2><i class="ti ti-arrow-down-circle"></i> Relatório de contas a receber</h2><p>Acompanhe valores em aberto, vencidos e recebidos em todos os segmentos.</p></div><button class="btn" onclick="imprimirRelatorioContas('cr')"><i class="ti ti-printer"></i>Imprimir / PDF</button></div>
+        <div class="sr report-toolbar"><div class="f"><label>De</label><input id="cr-de" type="date" onchange="rCR()"></div><div class="f"><label>Até</label><input id="cr-ate" type="date" onchange="rCR()"></div><div class="f"><label>Status</label><select id="cr-status" onchange="rCR()"><option value="">Todos</option><option value="aberto">Em aberto</option><option value="recebido">Recebido</option></select></div><button class="btn" onclick="definirPeriodoContas('cr','hoje')">Hoje</button><button class="btn" onclick="definirPeriodoContas('cr','mes')">Este mês</button><div style="margin-left:auto"><button class="btn bp sm" onclick="openConta('cr')"><i class="ti ti-plus"></i>Nova conta</button></div></div>
         <div class="fsum">
           <div class="fc"><div class="fcl">Em aberto</div><div class="fcv bl" id="cr-ab">—</div></div>
           <div class="fc"><div class="fcl">Vencido</div><div class="fcv rd" id="cr-ve">—</div></div>
@@ -564,6 +565,8 @@ textarea{resize:vertical;min-height:52px}
       <!-- CONTAS A PAGAR -->
       <div class="page" id="page-cp">
         <div id="a-cp"></div>
+        <div class="agenda-head"><div><h2><i class="ti ti-arrow-up-circle"></i> Relatório de contas a pagar</h2><p>Acompanhe despesas em aberto, vencidas e pagas em todos os segmentos.</p></div><button class="btn" onclick="imprimirRelatorioContas('cp')"><i class="ti ti-printer"></i>Imprimir / PDF</button></div>
+        <div class="sr report-toolbar"><div class="f"><label>De</label><input id="cp-de" type="date" onchange="rCP()"></div><div class="f"><label>Até</label><input id="cp-ate" type="date" onchange="rCP()"></div><div class="f"><label>Status</label><select id="cp-status" onchange="rCP()"><option value="">Todos</option><option value="aberto">Em aberto</option><option value="pago">Pago</option></select></div><button class="btn" onclick="definirPeriodoContas('cp','hoje')">Hoje</button><button class="btn" onclick="definirPeriodoContas('cp','mes')">Este mês</button><div style="margin-left:auto"><button class="btn bp sm" onclick="openConta('cp')"><i class="ti ti-plus"></i>Nova conta</button></div></div>
         <div class="fsum">
           <div class="fc"><div class="fcl">Em aberto</div><div class="fcv bl" id="cp-ab">—</div></div>
           <div class="fc"><div class="fcl">Vencido</div><div class="fcv rd" id="cp-ve">—</div></div>
@@ -2371,15 +2374,16 @@ async function rCR(){
     let l;
     if(_isOnline){const{data}=await sb.from('contas_receber').select('*,clientes(nome)').eq('workspace_id',wsId()).order('vencimento');l=data||[];await idbClear('contas_receber');for(const r of l)await idbPut('contas_receber',r);}
     else{l=(await idbGetAll('contas_receber')).filter(r=>r.workspace_id===wsId());l.sort((a,b)=>(a.vencimento||'').localeCompare(b.vencimento||''));const cs=await idbGetAll('clientes');l=l.map(r=>({...r,clientes:cs.find(c=>c.id===r.cliente_id)||null}));}
-    const ab=l.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor||0),0);
-    const ve=l.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor||0),0);
-    const rm=l.filter(c=>c.status==='recebido'&&(c.recebido_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor||0),0);
+    const de=document.getElementById('cr-de')?.value||'',ate=document.getElementById('cr-ate')?.value||'',stf=document.getElementById('cr-status')?.value||'',vis=l.filter(c=>(!de||String(c.vencimento||'')>=de)&&(!ate||String(c.vencimento||'')<=ate)&&(!stf||c.status===stf));
+    const ab=vis.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor||0),0);
+    const ve=vis.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor||0),0);
+    const rm=vis.filter(c=>c.status==='recebido'&&(c.recebido_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor||0),0);
     document.getElementById('cr-ab').textContent=R(ab);
     document.getElementById('cr-ve').textContent=R(ve);
     document.getElementById('cr-rm').textContent=R(rm);
     const tb=document.getElementById('tb-cr');
-    if(!l.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a receber.</td></tr>';return;}
-    tb.innerHTML=l.map(c=>{
+    if(!vis.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a receber no período.</td></tr>';return;}
+    tb.innerHTML=vis.map(c=>{
       const venc=c.status==='aberto'&&c.vencimento<hjS;
       const sc=c.status==='recebido'?'bs':venc?'bd':'bw';
       const st=c.status==='recebido'?'Recebido':venc?'Vencido':'Em aberto';
@@ -2399,15 +2403,16 @@ async function rCP(){
     let l;
     if(_isOnline){const{data}=await sb.from('contas_pagar').select('*,fornecedores(nome)').eq('workspace_id',wsId()).order('vencimento');l=data||[];await idbClear('contas_pagar');for(const r of l)await idbPut('contas_pagar',r);}
     else{l=(await idbGetAll('contas_pagar')).filter(r=>r.workspace_id===wsId());l.sort((a,b)=>(a.vencimento||'').localeCompare(b.vencimento||''));const fs=await idbGetAll('fornecedores');l=l.map(r=>({...r,fornecedores:fs.find(f=>f.id===r.fornecedor_id)||null}));}
-    const ab=l.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor||0),0);
-    const ve=l.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor||0),0);
-    const pm=l.filter(c=>c.status==='pago'&&(c.pago_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor||0),0);
+    const de=document.getElementById('cp-de')?.value||'',ate=document.getElementById('cp-ate')?.value||'',stf=document.getElementById('cp-status')?.value||'',vis=l.filter(c=>(!de||String(c.vencimento||'')>=de)&&(!ate||String(c.vencimento||'')<=ate)&&(!stf||c.status===stf));
+    const ab=vis.filter(c=>c.status==='aberto').reduce((s,c)=>s+Number(c.valor||0),0);
+    const ve=vis.filter(c=>c.status==='aberto'&&c.vencimento<hjS).reduce((s,c)=>s+Number(c.valor||0),0);
+    const pm=vis.filter(c=>c.status==='pago'&&(c.pago_em||'').startsWith(mS)).reduce((s,c)=>s+Number(c.valor||0),0);
     document.getElementById('cp-ab').textContent=R(ab);
     document.getElementById('cp-ve').textContent=R(ve);
     document.getElementById('cp-pm').textContent=R(pm);
     const tb=document.getElementById('tb-cp');
-    if(!l.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a pagar.</td></tr>';return;}
-    tb.innerHTML=l.map(c=>{
+    if(!vis.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhuma conta a pagar no período.</td></tr>';return;}
+    tb.innerHTML=vis.map(c=>{
       const venc=c.status==='aberto'&&c.vencimento<hjS;
       const sc=c.status==='pago'?'bs':venc?'bd':'bw';
       const st=c.status==='pago'?'Pago':venc?'Vencido':'Em aberto';
@@ -2421,6 +2426,8 @@ async function rCP(){
   }catch(e){document.getElementById('tb-cp').innerHTML=`<tr><td colspan="6" class="emp">Erro: ${e.message}</td></tr>`;}
 }
 
+function definirPeriodoContas(tipo,periodo){const d=new Date(),de=document.getElementById(tipo+'-de'),ate=document.getElementById(tipo+'-ate');if(periodo==='hoje'){de.value=hj();ate.value=hj();}else{de.value=finPrimeiroDia();ate.value=hj();}tipo==='cr'?rCR():rCP();}
+function imprimirRelatorioContas(tipo){const nome=tipo==='cr'?'Contas a receber':'Contas a pagar',page=document.getElementById('page-'+tipo),rows=page?.querySelector('tbody')?.innerHTML||'',de=document.getElementById(tipo+'-de')?.value||'—',ate=document.getElementById(tipo+'-ate')?.value||'—';const w=window.open('','_blank','width=1000,height=700');if(!w){mostrarToast('Permita pop-ups para imprimir o relatório.','error');return;}w.document.write(`<html><head><title>Relatório — ${nome}</title><style>body{font:12px Arial;padding:24px;color:#111}h1{font-size:20px;border-bottom:2px solid #222;padding-bottom:8px}p{color:#555}table{width:100%;border-collapse:collapse;margin-top:18px}td,th{border:1px solid #aaa;padding:8px;text-align:left}th{background:#eee}.badge{font-weight:bold}</style></head><body><h1>${nome}</h1><p>Período: ${de} a ${ate}</p><table><thead><tr><th>Descrição</th><th>Cliente/Fornecedor</th><th>Vencimento</th><th>Valor</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);w.document.close();w.focus();setTimeout(()=>w.print(),150);}
 async function openConta(tipo,id=null){
   tipoC=tipo; editId.conta=id;
   document.getElementById('mct-t').textContent=tipo==='cr'?(id?'Editar conta a receber':'Nova conta a receber'):(id?'Editar conta a pagar':'Nova conta a pagar');
