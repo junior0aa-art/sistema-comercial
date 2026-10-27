@@ -506,10 +506,13 @@ textarea{resize:vertical;min-height:52px}
         <div class="restaurant-layout"><div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-layout-grid"></i>Mesas</div><div class="rest-legend"><span class="rest-dot livre"></span>Livres <span class="rest-dot ocupada"></span>Ocupadas <span class="rest-dot reservada"></span>Reservadas</div></div><div id="rest-mesas" class="rest-tables"><div class="emp">Carregando mesas...</div></div></div><div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-list-details"></i>Pedidos em aberto</div><button class="btn sm" onclick="rRestaurante()"><i class="ti ti-refresh"></i></button></div><div id="rest-pedidos" class="rest-orders"><div class="emp">Carregando pedidos...</div></div></div></div>
       </div>
 
-      <!-- VENDAS -->
+      <!-- VENDAS / RELATÓRIO DETALHADO -->
       <div class="page" id="page-vend">
         <div id="a-vend"></div>
-        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th style="width:60px">#</th><th style="width:85px">Data</th><th>Cliente</th><th style="width:55px">Itens</th><th style="width:100px">Total</th><th style="width:110px">Pagamento</th><th style="width:75px">Status</th><th style="width:95px">Ações</th></tr></thead><tbody id="tb-vend"><tr><td colspan="8" class="emp">Carregando...</td></tr></tbody></table></div></div>
+        <div class="agenda-head"><div><h2><i class="ti ti-report-analytics"></i> Relatório detalhado de vendas</h2><p>Use os filtros para consultar vendas, produtos e vendedores.</p></div><button class="btn" onclick="limparRelatorioVendas()"><i class="ti ti-filter-off"></i>Limpar filtros</button></div>
+        <div class="card sales-report-filters"><div class="fg"><div class="f"><label>Buscar por venda</label><input id="vend-busca-venda" placeholder="ID ou número da venda"></div><div class="f"><label>Buscar por produto</label><input id="vend-busca-produto" placeholder="Nome do produto"></div><div class="f"><label>Buscar por vendedor</label><input id="vend-busca-vendedor" placeholder="Nome do vendedor"></div><div class="f"><label>Data inicial</label><input id="vend-de" type="date"></div><div class="f"><label>Data final</label><input id="vend-ate" type="date"></div><button class="btn bp sales-search-btn" onclick="buscarRelatorioVendas()"><i class="ti ti-search"></i>Pesquisar relatório</button></div></div>
+        <div id="vend-relatorio-resumo" class="sg" style="display:none"></div>
+        <div class="card" style="padding:0"><div class="card-hd" style="padding:14px 16px 0"><div class="ct"><i class="ti ti-list-details"></i>Detalhamento por item</div><span id="vend-relatorio-status" class="badge bg">Faça uma pesquisa para carregar</span></div><div class="tw"><table><thead><tr><th style="width:75px">Venda</th><th style="width:85px">Data</th><th>Produto</th><th style="width:65px">Qtd.</th><th style="width:100px">Unitário</th><th style="width:105px">Total item</th><th>Vendedor</th><th style="width:105px">Pagamento</th><th style="width:82px">Ações</th></tr></thead><tbody id="tb-vend"><tr><td colspan="9" class="emp">Informe os filtros e clique em “Pesquisar relatório”.</td></tr></tbody></table></div></div>
       </div>
 
       <!-- COMISSÕES -->
@@ -2029,50 +2032,9 @@ async function salvarForn() {
 }
 
 // ── VENDAS ───────────────────────────────────────────────────
-async function rVend() {
-  const tb = document.getElementById('tb-vend');
-  try {
-    let data;
-    if (_isOnline) {
-      const res = await sb.from('vendas').select('*,clientes(nome),venda_itens(id)').eq('workspace_id',wsId()).order('created_at',{ascending:false});
-      if (res.error) throw res.error;
-      data = res.data||[];
-    } else {
-      data = (await idbGetAll('vendas')).filter(r=>r.workspace_id===wsId()).sort((a,b)=>(b.created_at||b.data||'').localeCompare(a.created_at||a.data||''));
-    }
-    // Verificar orçamentos aprovados aguardando finalização
-    try{
-      const {data:orcs}=await sb.from('orcamentos').select('*,clientes(nome),orcamento_itens(*)').eq('workspace_id',wsId()).eq('status','Aprovado');
-      if(orcs&&orcs.length>0){
-        const banner=document.getElementById('orc-banner')||document.createElement('div');
-        banner.id='orc-banner';
-        banner.style.cssText='background:var(--blue-bg);border:1px solid var(--blue-txt);border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:var(--blue-txt)';
-        banner.innerHTML='<b><i class="ti ti-file-invoice" style="margin-right:6px"></i>'+orcs.length+' orçamento(s) aguardando finalização:</b>'
-          +orcs.map(o=>`<div style="margin-top:8px;display:flex;align-items:center;gap:10px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid var(--bdr)">
-            <span style="flex:1"><b>${o.clientes?.nome||'—'}</b> · ${R(o.total)} · Validade: ${o.validade||'—'}</span>
-            <button class="btn bp sm" onclick="finalizarOrcamentoComoVenda('${o.id}')"><i class="ti ti-shopping-cart"></i>Finalizar como venda</button>
-          </div>`).join('');
-        const tabelaVend=document.getElementById('tb-vend');
-        if(tabelaVend&&tabelaVend.parentNode&&!document.getElementById('orc-banner'))
-          tabelaVend.parentNode.parentNode.insertBefore(banner,tabelaVend.parentNode);
-      } else {
-        const banner=document.getElementById('orc-banner');
-        if(banner) banner.remove();
-      }
-    }catch(e){}
-    if (!data.length) { tb.innerHTML='<tr><td colspan="8" class="emp">Nenhuma venda registrada.</td></tr>'; return; }
-    tb.innerHTML = data.map(v=>`<tr>
-      <td><small style="color:var(--txt2)">${String(v.id||'').slice(-6)}</small></td>
-      <td>${v.data}</td><td>${v.clientes?.nome||'—'}</td>
-      <td>${(v.venda_itens||[]).length}</td><td>${R(v.total)}</td>
-      <td>${v.pagamento||'—'}</td>
-      <td><span class="badge bs">Concluída</span></td>
-      <td><div class="tda">
-        <button class="btn sm" onclick="verDoc('${v.id}','venda')"><i class="ti ti-eye"></i></button>
-        <button class="btn sm bda" onclick="excluirVenda('${v.id}')"><i class="ti ti-trash"></i></button>
-      </div></td></tr>`).join('');
-  } catch(e) { tb.innerHTML=`<tr><td colspan="8" class="emp">Erro: ${e.message}</td></tr>`; }
-}
+async function rVend(){const tb=document.getElementById('tb-vend');if(tb)tb.innerHTML='<tr><td colspan="9" class="emp">Informe os filtros e clique em “Pesquisar relatório”.</td></tr>';const st=document.getElementById('vend-relatorio-status');if(st)st.textContent='Faça uma pesquisa para carregar';const resumo=document.getElementById('vend-relatorio-resumo');if(resumo)resumo.style.display='none';}
+function limparRelatorioVendas(){['vend-busca-venda','vend-busca-produto','vend-busca-vendedor','vend-de','vend-ate'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});rVend();}
+async function buscarRelatorioVendas(){const tb=document.getElementById('tb-vend'),st=document.getElementById('vend-relatorio-status'),resumo=document.getElementById('vend-relatorio-resumo');const buscaVenda=(document.getElementById('vend-busca-venda')?.value||'').trim().toLowerCase(),buscaProduto=(document.getElementById('vend-busca-produto')?.value||'').trim().toLowerCase(),buscaVendedor=(document.getElementById('vend-busca-vendedor')?.value||'').trim().toLowerCase(),de=document.getElementById('vend-de')?.value||'',ate=document.getElementById('vend-ate')?.value||'';if(!buscaVenda&&!buscaProduto&&!buscaVendedor&&!de&&!ate){mostrarToast('Informe pelo menos um filtro para gerar o relatório.','error');return;}if(tb)tb.innerHTML='<tr><td colspan="9" class="emp">Consultando vendas...</td></tr>';try{let vendas=[],itens=[];if(_isOnline){const vr=await sb.from('vendas').select('*,clientes(nome)').eq('workspace_id',wsId()).order('data',{ascending:false});if(vr.error)throw vr.error;vendas=vr.data||[];const ids=vendas.map(v=>v.id);if(ids.length){const ir=await sb.from('venda_itens').select('*').in('venda_id',ids);if(ir.error)throw ir.error;itens=ir.data||[];}}else{vendas=(await idbGetAll('vendas')).filter(v=>v.workspace_id===wsId());const ids=new Set(vendas.map(v=>v.id));itens=(await idbGetAll('venda_itens')).filter(i=>ids.has(i.venda_id));}await carregarUsuariosComissao();const users=_comissaoUsuarios||[];const userName=v=>{const u=users.find(x=>String(x.id)===String(v.vendedor_id));return u?.nome||u?.email||'Sem vendedor';};vendas=vendas.filter(v=>{const id=String(v.id||'').toLowerCase(),data=String(v.data||''),ven=userName(v).toLowerCase();return(!buscaVenda||id.includes(buscaVenda)||id.slice(-6).includes(buscaVenda))&&(!buscaVendedor||ven.includes(buscaVendedor))&&(!de||data>=de)&&(!ate||data<=ate);});const ids=new Set(vendas.map(v=>v.id)),byVenda={};itens.filter(i=>ids.has(i.venda_id)).forEach(i=>(byVenda[i.venda_id]??=[]).push(i));const linhas=[];vendas.forEach(v=>{const its=byVenda[v.id]||[],selecionados=its.filter(i=>!buscaProduto||String(i.nome_produto||'').toLowerCase().includes(buscaProduto));if(selecionados.length)selecionados.forEach(i=>linhas.push({v,i}));else if(!buscaProduto&&!its.length)linhas.push({v,i:null});});if(!linhas.length){tb.innerHTML='<tr><td colspan="9" class="emp">Nenhuma venda encontrada com esses filtros.</td></tr>';if(st)st.textContent='0 resultados';if(resumo)resumo.style.display='none';return;}const total=linhas.reduce((a,x)=>a+(x.i?Number(x.i.quantidade||0)*Number(x.i.preco_unitario||0):Number(x.v.total||0)),0);if(resumo){resumo.style.display='grid';resumo.innerHTML=`<div class="sc"><div class="sl">Vendas encontradas</div><div class="sv">${new Set(linhas.map(x=>x.v.id)).size}</div></div><div class="sc"><div class="sl">Itens detalhados</div><div class="sv">${linhas.length}</div></div><div class="sc"><div class="sl">Total consultado</div><div class="sv" style="color:var(--green-txt)">${R(total)}</div></div>`;}if(st)st.textContent=`${linhas.length} item(ns)`;tb.innerHTML=linhas.map(({v,i})=>{const qtd=Number(i?.quantidade||0),unit=Number(i?.preco_unitario||0),tot=i?unit*qtd:Number(v.total||0),nome=i?.nome_produto||'Venda sem itens';return `<tr><td><small style="color:var(--txt2)">${String(v.id||'').slice(-6)}</small></td><td>${escapeHtml(v.data||'—')}</td><td><b>${escapeHtml(nome)}</b>${v.clientes?.nome?`<small style="display:block;color:var(--txt2)">${escapeHtml(v.clientes.nome)}</small>`:''}</td><td>${i?qtd:'—'}</td><td>${i?R(unit):'—'}</td><td><b>${R(tot)}</b></td><td>${escapeHtml(userName(v))}</td><td>${escapeHtml(v.pagamento||'—')}</td><td><div class="tda"><button class="btn sm" onclick="verDoc('${v.id}','venda')" title="Ver venda"><i class="ti ti-eye"></i></button></div></td></tr>`;}).join('');}catch(e){tb.innerHTML=`<tr><td colspan="9" class="emp">Erro ao consultar: ${escapeHtml(e.message)}</td></tr>`;if(st)st.textContent='Erro';}}
 
 async function rOrc() {
   const tb = document.getElementById('tb-orc');
