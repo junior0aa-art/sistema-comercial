@@ -1,4 +1,3 @@
--- Módulo Compras/Entradas e análise de lucro. Execute no SQL Editor do Supabase.
 create table if not exists public.compras_entradas (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
