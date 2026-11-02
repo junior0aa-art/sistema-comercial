@@ -46,3 +46,6 @@ drop policy if exists compras_entradas_workspace on public.compras_entradas;
 drop policy if exists compras_itens_workspace on public.compras_itens;
 create policy compras_entradas_workspace on public.compras_entradas for all using (workspace_id in (select workspace_id from public.usuarios where auth_id=auth.uid())) with check (workspace_id in (select workspace_id from public.usuarios where auth_id=auth.uid()));
 create policy compras_itens_workspace on public.compras_itens for all using (workspace_id in (select workspace_id from public.usuarios where auth_id=auth.uid())) with check (workspace_id in (select workspace_id from public.usuarios where auth_id=auth.uid()));
+
+-- Percentual adicional de custo por item.
+alter table public.compras_itens add column if not exists custo_percentual numeric(8,4) not null default 0;
