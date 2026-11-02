@@ -747,7 +747,7 @@ textarea{resize:vertical;min-height:52px}
   <div class="mb"><div id="a-mforn"></div><div class="fg">
     <div class="f s2"><label>Razão social *</label><input id="f-nm"></div>
     <input type="hidden" id="f-cod">
-    <div class="f"><label>CNPJ</label><input id="f-cnpj"></div>
+    <div class="f"><label>CNPJ</label><div class="row" style="display:flex;gap:6px"><input id="f-cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00" style="flex:1"><button type="button" class="btn sm" id="btn-consultar-cnpj" onclick="consultarCnpjFornecedor()" title="Consultar CNPJ"><i class="ti ti-search"></i>Consultar</button></div><small id="f-cnpj-status" style="display:block;color:var(--txt2);margin-top:4px"></small></div>
     <div class="f"><label>Contato</label><input id="f-ct"></div>
     <div class="f"><label>Telefone</label><input id="f-tel"></div>
     <div class="f"><label>E-mail</label><input id="f-em" type="email"></div>
@@ -2055,7 +2055,14 @@ async function salvarCli() {
   setLoading('btn-cli',false,'Salvar cliente');
 }
 
+document.addEventListener('input',e=>{if(e.target&&e.target.id==='f-cnpj')e.target.value=formatarCnpjFornecedor(e.target.value);});
 // ── FORNECEDORES ─────────────────────────────────────────────
+// Consulta pública de dados cadastrais do CNPJ.
+function somenteDigitosCnpj(v){return String(v||'').replace(/\D/g,'');}
+function formatarCnpjFornecedor(v){const d=somenteDigitosCnpj(v).slice(0,14);return d.length<=2?d:d.length<=5?d.slice(0,2)+'.'+d.slice(2):d.length<=8?d.slice(0,2)+'.'+d.slice(2,5)+'.'+d.slice(5):d.length<=12?d.slice(0,2)+'.'+d.slice(2,5)+'.'+d.slice(5,8)+'/'+d.slice(8):d.slice(0,2)+'.'+d.slice(2,5)+'.'+d.slice(5,8)+'/'+d.slice(8,12)+'-'+d.slice(12);}
+function cnpjValidoFornecedor(v){const d=somenteDigitosCnpj(v);if(d.length!==14||/^([0-9])\1+$/.test(d))return false;let soma=0,peso=2;for(let i=11;i>=0;i--){soma+=Number(d[i])*peso++;if(peso>9)peso=2;}let dig=(soma%11<2?0:11-soma%11);if(dig!==Number(d[12]))return false;soma=0;peso=2;for(let i=12;i>=0;i--){soma+=Number(d[i])*peso++;if(peso>9)peso=2;}dig=(soma%11<2?0:11-soma%11);return dig===Number(d[13]);}
+function valorCnpjFornecedor(obj,...keys){for(const k of keys){if(obj&&obj[k]!=null&&String(obj[k]).trim())return String(obj[k]).trim();}return '';}
+async function consultarCnpjFornecedor(){const input=document.getElementById('f-cnpj'),status=document.getElementById('f-cnpj-status'),btn=document.getElementById('btn-consultar-cnpj'),cnpj=somenteDigitosCnpj(input.value);if(!cnpjValidoFornecedor(cnpj)){status.textContent='Informe um CNPJ válido com 14 dígitos.';status.style.color='var(--danger,#b42318)';return;}btn.disabled=true;status.textContent='Consultando CNPJ...';status.style.color='var(--txt2)';try{let data;let res=await fetch('https://brasilapi.com.br/api/cnpj/v1/'+cnpj);if(!res.ok)throw new Error('CNPJ não encontrado');data=await res.json();const razao=valorCnpjFornecedor(data,'razao_social','razaoSocial'),fantasia=valorCnpjFornecedor(data,'nome_fantasia','nomeFantasia'),logradouro=valorCnpjFornecedor(data,'logradouro'),numero=valorCnpjFornecedor(data,'numero'),complemento=valorCnpjFornecedor(data,'complemento'),bairro=valorCnpjFornecedor(data,'bairro'),endereco=[logradouro,numero,complemento,bairro].filter(Boolean).join(', ');document.getElementById('f-nm').value=razao||fantasia||'';document.getElementById('f-ct').value=fantasia||razao||'';document.getElementById('f-tel').value=valorCnpjFornecedor(data,'ddd_telefone_1','telefone','telefone1');document.getElementById('f-em').value=valorCnpjFornecedor(data,'email');document.getElementById('f-end').value=endereco;document.getElementById('f-cid').value=valorCnpjFornecedor(data,'municipio','cidade');const uf=valorCnpjFornecedor(data,'uf').toUpperCase();if([...document.getElementById('f-uf').options].some(o=>o.value===uf))document.getElementById('f-uf').value=uf;input.value=formatarCnpjFornecedor(cnpj);status.textContent='Dados preenchidos. Confira antes de salvar.';status.style.color='var(--success,#067647)';}catch(e){status.textContent='Não foi possível consultar. Confira o CNPJ ou preencha manualmente.';status.style.color='var(--danger,#b42318)';}finally{btn.disabled=false;}}
 async function rForn(f) {
   document.getElementById('act-forn').innerHTML=`<button class="btn bp sm" onclick="openForn()"><i class="ti ti-plus"></i>Novo fornecedor</button>`;
   const tb = document.getElementById('tb-forn');
@@ -2086,14 +2093,14 @@ function filtrarForn() { rForn(document.getElementById('s-forn').value); }
 async function openForn(id=null) {
   editId.forn = id;
   document.getElementById('mf-t').textContent = id?'Editar fornecedor':'Novo fornecedor';
-  document.getElementById('a-mforn').innerHTML = '';
+  document.getElementById('a-mforn').innerHTML = '';document.getElementById('f-cnpj-status').textContent = '';
   ['f-nm','f-cnpj','f-ct','f-tel','f-em','f-end','f-cid','f-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
   document.getElementById('f-uf').value='';
   if (id) {
     const f = _fornecedores.find(x=>x.id===id);
     if (f) {
       document.getElementById('f-nm').value   = f.nome||'';
-      document.getElementById('f-cnpj').value = f.cnpj||'';
+      document.getElementById('f-cnpj').value = formatarCnpjFornecedor(f.cnpj||'');
       document.getElementById('f-ct').value   = f.contato||'';
       document.getElementById('f-tel').value  = f.telefone||'';
       document.getElementById('f-em').value   = f.email||'';
