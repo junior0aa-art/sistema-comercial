@@ -702,7 +702,7 @@ textarea{resize:vertical;min-height:52px}
 <!-- Produto -->
 <div class="mw" id="mw-prod"><div class="mo lg">
   <div class="mh"><h2 id="mp-t">Novo produto</h2><button class="xb" onclick="fecharM('prod')">&times;</button></div>
-  <div class="mb"><div id="a-mprod"></div><div class="produto-foto-box"><div class="produto-foto-preview" id="p-foto-preview"><i class="ti ti-photo"></i></div><div class="produto-foto-info"><b>Foto do produto</b><br>Use uma imagem quadrada ou horizontal. Ela aparecerá no cadastro e no PDV.<div class="produto-foto-actions"><input type="file" id="p-foto-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="prepararFotoProduto(event)"><button type="button" class="btn sm" onclick="document.getElementById('p-foto-file').click()"><i class="ti ti-upload"></i>Escolher foto</button><button type="button" class="btn sm bda" onclick="removerFotoProduto()"><i class="ti ti-trash"></i>Remover</button></div></div></div><div class="fg c3">
+  <div class="mb"><div id="a-mprod"></div><div class="produto-foto-box"><div class="produto-foto-preview" id="p-foto-preview"><i class="ti ti-photo"></i></div><div class="produto-foto-info"><b>Foto do produto</b><br>Use uma imagem quadrada ou horizontal. Ela aparecerá no cadastro e no PDV.<div class="produto-foto-actions"><input type="file" id="p-foto-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="prepararFotoProduto(event)"><button type="button" class="btn sm" onclick="document.getElementById('p-foto-file').click()"><i class="ti ti-upload"></i>Escolher foto</button><button type="button" class="btn sm" id="btn-buscar-foto-produto" onclick="buscarImagemProduto()"><i class="ti ti-photo-search"></i>Buscar imagem</button><button type="button" class="btn sm bda" onclick="removerFotoProduto()"><i class="ti ti-trash"></i>Remover</button><small id="p-foto-status" style="display:block;color:var(--txt2);margin-top:6px"></small></div></div></div><div class="fg c3">
     <input type="hidden" id="p-cod">
     <div class="f"><label>Unidade</label><select id="p-un"><option>un</option><option>kg</option><option>cx</option><option>pç</option><option>m</option><option>L</option></select></div>
     <div class="f"><label>Categoria</label><input id="p-cat" placeholder="ex: Eletrônicos"></div>
@@ -1881,7 +1881,7 @@ async function openProd(id=null) {
   editId.prod = id;
   document.getElementById('mp-t').textContent = id?'Editar produto':'Novo produto';
   document.getElementById('a-mprod').innerHTML = '';
-  _produtoFotoData=''; removerFotoProduto();
+  _produtoFotoData=''; removerFotoProduto();document.getElementById('p-foto-status').textContent='';
   // Limpar campos
   ['p-cat','p-nm','p-marca','p-barras','p-aplicacao','p-localizacao','p-ob'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
   ['p-ncm','p-pr','p-cu'].forEach(fid=>{ const e=document.getElementById(fid); if(e) e.value=''; });
@@ -1925,6 +1925,7 @@ async function openProd(id=null) {
   abrirM('prod');
 }
 
+async function buscarImagemProduto(){const btn=document.getElementById('btn-buscar-foto-produto'),status=document.getElementById('p-foto-status'),codigo=String(document.getElementById('p-barras').value||'').replace(/\D/g,''),ncm=String(document.getElementById('p-ncm').value||'').replace(/\D/g,''),nome=document.getElementById('p-nm').value.trim(),marca=document.getElementById('p-marca').value.trim();if(!codigo&&!ncm&&!nome){status.textContent='Informe código de barras, NCM ou nome do produto.';status.style.color='var(--danger,#b42318)';return;}btn.disabled=true;status.textContent='Buscando imagem...';status.style.color='var(--txt2)';try{let produto=null;if(codigo){const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${codigo}?fields=product_name,brands,image_front_url,image_url`);if(r.ok){const j=await r.json();if(j.status===1)produto=j.product;}}if(!produto?.image_front_url&&!produto?.image_url){const termos=[nome,marca,ncm].filter(Boolean).join(' ');const u=`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(termos)}&search_simple=1&action=process&json=1&page_size=10&fields=product_name,brands,image_front_url,image_url`;const r=await fetch(u);if(r.ok){const j=await r.json();produto=(j.products||[]).find(x=>x.image_front_url||x.image_url)||null;}}const imagem=produto?.image_front_url||produto?.image_url;if(!imagem)throw new Error('Imagem não encontrada');_produtoFotoData=imagem;atualizarPreviewFotoProduto(_produtoFotoData);status.textContent='Imagem encontrada. Confira antes de salvar.';status.style.color='var(--success,#067647)';}catch(e){status.textContent='Não encontramos uma imagem. Você pode enviar uma foto manualmente.';status.style.color='var(--danger,#b42318)';}finally{btn.disabled=false;}}
 async function salvarProd() {
   const nm = document.getElementById('p-nm').value.trim();
   if (!nm) { alrt('mprod','Informe o nome do produto.','d'); return; }
