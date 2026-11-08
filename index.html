@@ -637,7 +637,8 @@ textarea{resize:vertical;min-height:52px}
           <div class="fc"><div class="fcl"><i class="ti ti-alert-triangle" style="font-size:13px"></i>Estoque baixo</div><div class="fcv rd" id="est-bx">—</div></div>
           <div class="fc"><div class="fcl"><i class="ti ti-x" style="font-size:13px"></i>Sem estoque</div><div class="fcv rd" id="est-zer">—</div></div>
         </div>
-        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th>Produto</th><th style="width:90px">Código</th><th style="width:80px">Estoque</th><th style="width:65px">Unid.</th><th style="width:100px">Situação</th><th style="width:105px">Ajuste</th></tr></thead><tbody id="tb-est"><tr><td colspan="6" class="emp">Carregando...</td></tr></tbody></table></div></div>
+        <div class="card compras-filtros"><div class="fg"><div class="f"><label>Pesquisar produto</label><input id="est-busca-nome" placeholder="Digite o nome do produto" oninput="rEst()"></div><div class="f"><label>Código do produto</label><input id="est-busca-codigo" placeholder="Código ou código de barras" oninput="rEst()"></div><div class="f"><label>Categoria</label><select id="est-busca-categoria" onchange="rEst()"><option value="">Todas as categorias</option></select></div><button class="btn" onclick="limparFiltrosEstoque()"><i class="ti ti-filter-off"></i>Limpar</button></div></div>
+        <div class="card" style="padding:0"><div class="tw"><table><thead><tr><th>Produto</th><th style="width:90px">Código</th><th style="width:80px">Estoque</th><th style="width:65px">Unid.</th><th style="width:100px">Situação</th><th style="width:105px">Ajuste</th></tr></thead><tbody id="tb-est"><tr><td colspan="6" class="emp">Pesquise por nome, código ou categoria para exibir os produtos.</td></tr></tbody></table></div></div>
       </div>
 
       <!-- FILIAIS --><div class="page" id="page-filiais"><div id="a-filiais"></div><div class="card"><div class="card-hd"><div class="ct"><i class="ti ti-building-community"></i>Filiais da empresa</div><button class="btn bp sm" onclick="abrirFilial()"><i class="ti ti-plus"></i>Nova filial</button></div><p style="font-size:12px;color:var(--txt2);margin:0 0 12px">Cada filial pode ter seu segmento e decidir se compartilha clientes entre Clínica e Barbearia.</p><div class="tw"><table><thead><tr><th>Filial</th><th>Segmento</th><th>Clientes</th><th>Status</th><th>Ações</th></tr></thead><tbody id="tb-filiais"><tr><td colspan="5" class="emp">Carregando...</td></tr></tbody></table></div></div></div><!-- CENTRAL ADMINISTRATIVA SAAS -->
@@ -2642,20 +2643,19 @@ function pararLeitorContagem(){_contagemLoop=false;_contagemCodigoBloqueado='';i
 // ── ESTOQUE ───────────────────────────────────────────────────
 async function rEst(){
   try{
-    let l;
-    if(_isOnline){const{data}=await sb.from('produtos').select('id,nome,codigo,estoque,estoque_min,estoque_max,unidade').eq('workspace_id',wsId()).order('estoque');l=data||[];}
-    else{l=(await idbGetAll('produtos')).filter(r=>r.workspace_id===wsId());l.sort((a,b)=>(a.estoque||0)-(b.estoque||0));}
-    document.getElementById('est-tot').textContent=l.length;
-    document.getElementById('est-bx').textContent=l.filter(p=>p.estoque>0&&p.estoque<=(p.estoque_min||5)).length;
-    document.getElementById('est-zer').textContent=l.filter(p=>p.estoque<=0).length;
-    const tb=document.getElementById('tb-est');
-    if(!l.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum produto.</td></tr>';return;}
-    tb.innerHTML=l.map(p=>{
-      const sit=p.estoque<=0?{lbl:'Sem estoque',cl:'bd'}:p.estoque<=(p.estoque_min||5)?{lbl:'Estoque baixo',cl:'bw'}:{lbl:'Normal',cl:'bs'};
-      return`<tr><td>${p.nome}</td><td><small style="color:var(--txt2)">${p.codigo||'—'}</small></td><td style="font-weight:700">${p.estoque}</td><td>${p.unidade||'un'}</td><td><span class="badge ${sit.cl}">${sit.lbl}</span></td><td><button class="btn sm bp" onclick="openAdj('${p.id}','${p.nome.replace(/'/g,"\\'")}',${p.estoque})"><i class="ti ti-adjustments"></i>Ajustar</button></td></tr>`;
-    }).join('');
-  }catch(e){document.getElementById('tb-est').innerHTML=`<tr><td colspan="6" class="emp">Erro: ${e.message}</td></tr>`;}
+    let todos;
+    if(_isOnline){const{data,error}=await sb.from('produtos').select('id,nome,codigo,codigo_barras,categoria,estoque,estoque_min,estoque_max,unidade').eq('workspace_id',wsId()).order('estoque');if(error)throw error;todos=data||[];}
+    else{todos=(await idbGetAll('produtos')).filter(r=>r.workspace_id===wsId());todos.sort((a,b)=>(a.estoque||0)-(b.estoque||0));}
+    const cat=document.getElementById('est-busca-categoria'),catAtual=cat?.value||'';
+    if(cat){const cats=[...new Set(todos.map(p=>String(p.categoria||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));cat.innerHTML='<option value="">Todas as categorias</option>'+cats.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('');if(cats.includes(catAtual))cat.value=catAtual;}
+    const nome=(document.getElementById('est-busca-nome')?.value||'').trim().toLowerCase(),codigo=(document.getElementById('est-busca-codigo')?.value||'').trim().toLowerCase(),categoria=cat?.value||'';
+    const pesquisando=!!(nome||codigo||categoria),l=pesquisando?todos.filter(p=>(!nome||String(p.nome||'').toLowerCase().includes(nome))&&(!codigo||[p.codigo,p.codigo_barras].filter(Boolean).join(' ').toLowerCase().includes(codigo))&&(!categoria||String(p.categoria||'')===categoria)):[];
+    document.getElementById('est-tot').textContent=pesquisando?l.length:'—';document.getElementById('est-bx').textContent=pesquisando?l.filter(p=>p.estoque>0&&p.estoque<=(p.estoque_min||5)).length:'—';document.getElementById('est-zer').textContent=pesquisando?l.filter(p=>p.estoque<=0).length:'—';
+    const tb=document.getElementById('tb-est');if(!pesquisando){tb.innerHTML='<tr><td colspan="6" class="emp">Pesquise por nome, código ou categoria para exibir os produtos.</td></tr>';return;}if(!l.length){tb.innerHTML='<tr><td colspan="6" class="emp">Nenhum produto encontrado com os filtros informados.</td></tr>';return;}
+    tb.innerHTML=l.map(p=>{const sit=p.estoque<=0?{lbl:'Sem estoque',cl:'bd'}:p.estoque<=(p.estoque_min||5)?{lbl:'Estoque baixo',cl:'bw'}:{lbl:'Normal',cl:'bs'};return`<tr><td>${escapeHtml(p.nome||'')}</td><td><small style="color:var(--txt2)">${escapeHtml(p.codigo||p.codigo_barras||'—')}</small></td><td style="font-weight:700">${p.estoque}</td><td>${escapeHtml(p.unidade||'un')}</td><td><span class="badge ${sit.cl}">${sit.lbl}</span></td><td><button class="btn sm bp" onclick="openAdj('${p.id}','${String(p.nome||'').replace(/'/g,"\\'")}',${p.estoque})"><i class="ti ti-adjustments"></i>Ajustar</button></td></tr>`;}).join('');
+  }catch(e){document.getElementById('tb-est').innerHTML=`<tr><td colspan="6" class="emp">Erro: ${escapeHtml(e.message)}</td></tr>`;}
 }
+function limparFiltrosEstoque(){document.getElementById('est-busca-nome').value='';document.getElementById('est-busca-codigo').value='';document.getElementById('est-busca-categoria').value='';rEst();}
 function openAdj(id,nome,est){
   adjId=id;
   document.getElementById('adj-nm').value=nome;
