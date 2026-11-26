@@ -3,13 +3,13 @@
 // Cache de arquivos estáticos com atualização segura e fallback offline
 // ============================================================
 
-const CACHE_NAME = 'sistema-comercial-v2';
+const CACHE_NAME = 'sistema-comercial-v3';
 const CACHE_URLS = [
   './',
   './index.html',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
-  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css',
-  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/fonts/tabler-icons.woff2',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2',
+  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.53.0/tabler-icons.min.css',
+  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.53.0/fonts/tabler-icons.woff2',
 ];
 
 self.addEventListener('install', event => {
